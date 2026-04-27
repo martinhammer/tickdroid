@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
@@ -21,9 +22,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,9 +45,22 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 @Composable
 fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
+    var showHelp by remember { mutableStateOf(false) }
 
     Scaffold(
-        topBar = { LargeTopAppBar(title = { Text("Connect to Nextcloud") }) },
+        topBar = {
+            LargeTopAppBar(
+                title = { Text("Connect with Tickbuddy") },
+                actions = {
+                    IconButton(onClick = { showHelp = true }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
+                            contentDescription = "Help",
+                        )
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -53,18 +69,10 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 .padding(horizontal = 24.dp)
                 .verticalScroll(rememberScrollState()),
         ) {
-            Text(
-                "Tickdroid syncs with the Tickbuddy app on your Nextcloud server. " +
-                    "Create an app password under Settings → Security → Devices & sessions, " +
-                    "and paste it here together with your login.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(16.dp))
-
             OutlinedTextField(
                 value = state.serverUrl,
                 onValueChange = viewModel::onServerUrlChange,
-                label = { Text("Server URL") },
+                label = { Text("Nextcloud server URL") },
                 placeholder = { Text("https://cloud.example.com") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
@@ -75,7 +83,7 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
             OutlinedTextField(
                 value = state.login,
                 onValueChange = viewModel::onLoginChange,
-                label = { Text("Login") },
+                label = { Text("User") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -127,5 +135,68 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 Text(message, color = MaterialTheme.colorScheme.error)
             }
         }
+
+        if (showHelp) {
+            HelpSheet(onDismiss = { showHelp = false })
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HelpSheet(onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text(
+                "About Tickdroid",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Tickdroid is a companion app for Tickbuddy, a daily habit tracker for Nextcloud. Please ensure that Tickbuddy is installed on your Nextcloud server before using Tickdroid.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(24.dp))
+
+            HelpField(
+                label = "Nextcloud server URL",
+                body = "The full URL of your Nextcloud server, including https://.",
+            )
+            Spacer(Modifier.height(16.dp))
+            HelpField(
+                label = "User",
+                body = "Your Nextcloud username, the same one you use to sign in to the web interface.",
+            )
+            Spacer(Modifier.height(16.dp))
+            HelpField(
+                label = "App password",
+                body = "A device-specific password generated in Nextcloud under Settings > Security > Devices & sessions.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun HelpField(label: String, body: String) {
+    Column {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
