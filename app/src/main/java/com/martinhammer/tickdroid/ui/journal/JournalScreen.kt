@@ -18,24 +18,35 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -45,9 +56,9 @@ import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackType
-import java.time.DayOfWeek
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
+import java.time.ZoneId
+import java.util.Date
 import java.util.Locale
 
 private val DayLabelWidth = 84.dp
@@ -56,14 +67,23 @@ private val CellGap = 4.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun JournalScreen(viewModel: JournalViewModel = hiltViewModel()) {
+fun JournalScreen(
+    onOpenSettings: () -> Unit = {},
+    viewModel: JournalViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
                 title = { Text("Tickdroid") },
-                actions = { SyncIndicator(state.syncStatus) },
+                actions = {
+                    SyncIndicator(state.syncStatus)
+                    OverflowMenu(onOpenSettings = onOpenSettings)
+                },
+                scrollBehavior = scrollBehavior,
             )
         },
     ) { padding ->
@@ -182,8 +202,12 @@ private fun DayRow(
     ticks: Map<TickKey, Tick>,
     gridScroll: androidx.compose.foundation.ScrollState,
 ) {
-    val isWeekend = day.dayOfWeek == DayOfWeek.SATURDAY || day.dayOfWeek == DayOfWeek.SUNDAY
-    val rowBg = if (isWeekend) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
+    val isWeekend = remember(day) {
+        val cal = android.icu.util.Calendar.getInstance(Locale.getDefault())
+        cal.time = Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant())
+        cal.isWeekend
+    }
+    val rowBg = if (isWeekend) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent
 
     Row(
         modifier = Modifier
@@ -209,10 +233,12 @@ private fun DayRow(
 private fun DayLabel(day: LocalDate, today: LocalDate) {
     val dow = day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())
         .uppercase(Locale.getDefault())
+    val context = LocalContext.current
+    val dateFormat = remember(context) { android.text.format.DateFormat.getDateFormat(context) }
     val sub = when (day) {
         today -> "today"
         today.minusDays(1) -> "yesterday"
-        else -> day.format(DateTimeFormatter.ofPattern("M/d/yy"))
+        else -> dateFormat.format(Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant()))
     }
     Column(modifier = Modifier.width(DayLabelWidth).padding(start = 12.dp)) {
         Text(dow, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
@@ -264,5 +290,24 @@ private fun SyncIndicator(status: SyncStatus) {
             modifier = Modifier.padding(end = 16.dp),
         )
         SyncStatus.Idle -> Unit
+    }
+}
+
+@Composable
+private fun OverflowMenu(onOpenSettings: () -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Settings") },
+                onClick = {
+                    expanded = false
+                    onOpenSettings()
+                },
+            )
+        }
     }
 }

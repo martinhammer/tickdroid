@@ -19,7 +19,6 @@ data class AuthUiState(
     val serverUrl: String = "",
     val login: String = "",
     val appPassword: String = "",
-    val allowHttp: Boolean = false,
     val probing: Boolean = false,
     val error: String? = null,
 )
@@ -36,11 +35,10 @@ class AuthViewModel @Inject constructor(
     fun onServerUrlChange(value: String) = _ui.update { it.copy(serverUrl = value, error = null) }
     fun onLoginChange(value: String) = _ui.update { it.copy(login = value, error = null) }
     fun onAppPasswordChange(value: String) = _ui.update { it.copy(appPassword = value, error = null) }
-    fun onAllowHttpChange(value: Boolean) = _ui.update { it.copy(allowHttp = value, error = null) }
 
     fun signIn() {
         val state = _ui.value
-        val normalizedUrl = ServerUrl.normalize(state.serverUrl, allowHttp = state.allowHttp)
+        val normalizedUrl = ServerUrl.normalize(state.serverUrl)
         if (normalizedUrl == null) {
             _ui.update { it.copy(error = "Enter a valid https:// URL") }
             return

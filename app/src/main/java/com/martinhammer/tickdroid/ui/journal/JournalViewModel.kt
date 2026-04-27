@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui.journal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
@@ -40,6 +41,7 @@ class JournalViewModel @Inject constructor(
     private val trackRepository: TrackRepository,
     private val tickRepository: TickRepository,
     private val syncManager: SyncManager,
+    uiPreferences: UiPreferences,
 ) : ViewModel() {
 
     private val today = LocalDate.now()
@@ -53,8 +55,10 @@ class JournalViewModel @Inject constructor(
         ticks,
         _window,
         syncManager.status,
-    ) { tracks, ticks, window, sync ->
-        JournalUiState(tracks = tracks, ticks = ticks, window = window, syncStatus = sync)
+        uiPreferences.showPrivate,
+    ) { tracks, ticks, window, sync, showPrivate ->
+        val visible = if (showPrivate) tracks else tracks.filterNot { it.private }
+        JournalUiState(tracks = visible, ticks = ticks, window = window, syncStatus = sync)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

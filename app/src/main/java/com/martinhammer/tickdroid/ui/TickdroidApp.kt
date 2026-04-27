@@ -11,10 +11,12 @@ import androidx.navigation.compose.rememberNavController
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.ui.auth.AuthScreen
 import com.martinhammer.tickdroid.ui.journal.JournalScreen
+import com.martinhammer.tickdroid.ui.settings.SettingsScreen
 
 object Routes {
     const val AUTH = "auth"
     const val JOURNAL = "journal"
+    const val SETTINGS = "settings"
 }
 
 @Composable
@@ -32,7 +34,12 @@ fun TickdroidApp(rootViewModel: RootViewModel = hiltViewModel()) {
         },
     ) {
         composable(Routes.AUTH) { AuthScreen() }
-        composable(Routes.JOURNAL) { JournalScreen() }
+        composable(Routes.JOURNAL) {
+            JournalScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
+        }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(onBack = { navController.popBackStack() })
+        }
     }
 }
 

@@ -23,7 +23,6 @@ import androidx.compose.material3.LargeTopAppBar
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -71,16 +70,6 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(8.dp))
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = state.allowHttp, onCheckedChange = viewModel::onAllowHttpChange)
-                Spacer(Modifier.height(0.dp))
-                Text(
-                    "  Allow http:// (self-hosted dev only)",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
             Spacer(Modifier.height(8.dp))
 
             OutlinedTextField(
