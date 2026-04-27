@@ -1,30 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path android:pathData="M31,63.928c0,0 6.4,-11 12.1,-13.1c7.2,-2.6 26,-1.4 26,-1.4l38.1,38.1L107,108.928l-32,-1L31,63.928z">
-        <aapt:attr name="android:fillColor">
-            <gradient
-                android:endX="85.84757"
-                android:endY="92.4963"
-                android:startX="42.9492"
-                android:startY="49.59793"
-                android:type="linear">
-                <item
-                    android:color="#44000000"
-                    android:offset="0.0" />
-                <item
-                    android:color="#00000000"
-                    android:offset="1.0" />
-            </gradient>
-        </aapt:attr>
-    </path>
-    <path
-        android:fillColor="#FFFFFF"
-        android:fillType="nonZero"
-        android:pathData="M65.3,45.828l3.8,-6.6c0.2,-0.4 0.1,-0.9 -0.3,-1.1c-0.4,-0.2 -0.9,-0.1 -1.1,0.3l-3.9,6.7c-6.3,-2.8 -13.4,-2.8 -19.7,0l-3.9,-6.7c-0.2,-0.4 -0.7,-0.5 -1.1,-0.3C38.8,38.328 38.7,38.828 38.9,39.228l3.8,6.6C36.2,49.428 31.7,56.028 31,63.928h46C76.3,56.028 71.8,49.428 65.3,45.828zM43.4,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2c-0.3,-0.7 -0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C45.3,56.528 44.5,57.328 43.4,57.328L43.4,57.328zM64.6,57.328c-0.8,0 -1.5,-0.5 -1.8,-1.2s-0.1,-1.5 0.4,-2.1c0.5,-0.5 1.4,-0.7 2.1,-0.4c0.7,0.3 1.2,1 1.2,1.8C66.5,56.528 65.6,57.328 64.6,57.328L64.6,57.328z"
-        android:strokeWidth="1"
-        android:strokeColor="#00000000" />
+    <!-- Scale original 285-unit content into the 72dp safe zone (72/285 ≈ 0.2526),
+         offset by 18dp so the safe-zone origin lands at canvas (18,18). -->
+    <group
+        android:scaleX="0.2526"
+        android:scaleY="0.2526"
+        android:translateX="18"
+        android:translateY="18">
+        <!-- Original SVG outer translate(47.5 47.5). -->
+        <group
+            android:translateX="47.5"
+            android:translateY="47.5">
+            <!-- Original SVG inner translate(-196.638 -40.45). -->
+            <group
+                android:translateX="-196.638"
+                android:translateY="-40.45">
+                <path
+                    android:fillColor="#FFFFFF"
+                    android:fillType="evenOdd"
+                    android:pathData="m289.67,57.934c-45.77,0 -83.03,37.263 -83.03,83.026 0,45.77 37.26,83.03 83.03,83.03s83.03,-37.26 83.03,-83.03c0,-19.78 -6.7,-37.48 -18.07,-51.972l-7.81,9.266c9.91,12.206 13.79,25.756 13.79,42.706 0,39.22 -31.72,70.92 -70.94,70.92s-70.94,-31.7 -70.94,-70.92 31.72,-70.934 70.94,-70.934c12.43,0 21.72,1.786 31.87,7.391l7.43,-9.754c-11.88,-6.562 -24.8,-9.729 -39.3,-9.729z" />
+                <path
+                    android:fillColor="#FFFFFF"
+                    android:pathData="m258.94,130.04c3.35,0 5.88,2.75 7.6,8.25 3.43,10.3 5.88,15.45 7.34,15.45 1.11,0 2.27,-0.86 3.47,-2.58 24.13,-38.63 46.45,-69.879 66.97,-93.745 5.32,-6.181 13.78,-9.272 25.37,-9.272 2.74,0 4.59,0.258 5.53,0.773 0.95,0.515 1.42,1.159 1.42,1.931 0,1.202 -1.42,3.563 -4.25,7.083 -33.14,39.835 -63.87,81.9 -92.2,126.2 -1.98,3.09 -6.01,4.64 -12.11,4.64 -6.18,0 -9.83,-0.26 -10.94,-0.78 -2.92,-1.28 -6.36,-7.85 -10.31,-19.7 -4.46,-13.13 -6.69,-21.38 -6.69,-24.72 0,-3.61 3,-7.09 9.01,-10.44 3.69,-2.06 6.96,-3.09 9.79,-3.09" />
+            </group>
+        </group>
+    </group>
 </vector>
