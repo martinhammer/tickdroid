@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.ui.settings
 import androidx.lifecycle.ViewModel
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
@@ -28,9 +29,13 @@ class SettingsViewModel @Inject constructor(
 
     val gridDensity: StateFlow<GridDensity> = uiPreferences.gridDensity
 
+    val themeMode: StateFlow<ThemeMode> = uiPreferences.themeMode
+
     fun setShowPrivate(value: Boolean) = uiPreferences.setShowPrivate(value)
 
     fun setGridDensity(value: GridDensity) = uiPreferences.setGridDensity(value)
+
+    fun setThemeMode(value: ThemeMode) = uiPreferences.setThemeMode(value)
 
     fun signOut() = authRepository.signOut()
 }

@@ -35,6 +35,8 @@ data class JournalUiState(
     val window: DateWindow = DateWindow(LocalDate.now().minusDays(29), LocalDate.now()),
     val syncStatus: SyncStatus = SyncStatus.Idle,
     val density: GridDensity = GridDensity.Default,
+    val loaded: Boolean = false,
+    val hasHiddenPrivateTracks: Boolean = false,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -62,7 +64,15 @@ class JournalViewModel @Inject constructor(
         prefs,
     ) { tracks, ticks, window, sync, (showPrivate, density) ->
         val visible = if (showPrivate) tracks else tracks.filterNot { it.private }
-        JournalUiState(tracks = visible, ticks = ticks, window = window, syncStatus = sync, density = density)
+        JournalUiState(
+            tracks = visible,
+            ticks = ticks,
+            window = window,
+            syncStatus = sync,
+            density = density,
+            loaded = true,
+            hasHiddenPrivateTracks = !showPrivate && tracks.any { it.private },
+        )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),

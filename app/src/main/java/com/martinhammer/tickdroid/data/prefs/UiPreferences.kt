@@ -24,6 +24,11 @@ class UiPreferences @Inject constructor(
     )
     val gridDensity: StateFlow<GridDensity> = _gridDensity.asStateFlow()
 
+    private val _themeMode = MutableStateFlow(
+        ThemeMode.fromName(prefs.getString(KEY_THEME_MODE, null))
+    )
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
     fun setShowPrivate(value: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_PRIVATE, value).apply()
         _showPrivate.value = value
@@ -34,8 +39,14 @@ class UiPreferences @Inject constructor(
         _gridDensity.value = value
     }
 
+    fun setThemeMode(value: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, value.name).apply()
+        _themeMode.value = value
+    }
+
     private companion object {
         const val KEY_SHOW_PRIVATE = "show_private_tracks"
         const val KEY_GRID_DENSITY = "grid_density"
+        const val KEY_THEME_MODE = "theme_mode"
     }
 }

@@ -17,8 +17,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -134,12 +136,26 @@ private fun JournalGrid(
 ) {
     val tracks = state.tracks
     if (tracks.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "No tracks yet. Create one in Tickbuddy on the web — they'll show up here after the next sync.",
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(32.dp),
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!state.loaded) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+            } else {
+                val message = if (state.hasHiddenPrivateTracks) {
+                    "All tracks are private. Enable \"Show private tracks\" in settings to show them."
+                } else {
+                    "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server."
+                }
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(32.dp),
+                )
+            }
         }
         return
     }
@@ -306,6 +322,13 @@ private fun TickCell(track: Track, tick: Tick?, cellSize: Dp) {
                 color = onContainer,
                 style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.SemiBold,
+            )
+        } else if (ticked) {
+            Icon(
+                imageVector = Icons.Filled.Check,
+                contentDescription = null,
+                tint = onContainer,
+                modifier = Modifier.size(cellSize * 0.6f),
             )
         }
     }

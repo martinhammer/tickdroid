@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -9,11 +10,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.martinhammer.tickdroid.data.auth.AuthState
+import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.ui.auth.AuthScreen
 import com.martinhammer.tickdroid.ui.journal.JournalScreen
 import com.martinhammer.tickdroid.ui.settings.AccountSettingsScreen
 import com.martinhammer.tickdroid.ui.settings.AppSettingsScreen
 import com.martinhammer.tickdroid.ui.settings.TracksSettingsScreen
+import com.martinhammer.tickdroid.ui.theme.TickdroidTheme
 
 object Routes {
     const val AUTH = "auth"
@@ -26,6 +29,20 @@ object Routes {
 @Composable
 fun TickdroidApp(rootViewModel: RootViewModel = hiltViewModel()) {
     val authState by rootViewModel.authState.collectAsStateWithLifecycle()
+    val themeMode by rootViewModel.themeMode.collectAsStateWithLifecycle()
+    val darkTheme = when (themeMode) {
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+    }
+
+    TickdroidTheme(darkTheme = darkTheme) {
+        TickdroidNav(authState = authState)
+    }
+}
+
+@Composable
+private fun TickdroidNav(authState: AuthState) {
     val navController = rememberNavController()
 
     SyncNavToAuthState(navController, authState)

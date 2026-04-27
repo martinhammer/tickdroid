@@ -25,6 +25,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -65,6 +66,7 @@ fun AppSettingsScreen(
 ) {
     val showPrivate by viewModel.showPrivate.collectAsStateWithLifecycle()
     val density by viewModel.gridDensity.collectAsStateWithLifecycle()
+    val theme by viewModel.themeMode.collectAsStateWithLifecycle()
     SettingsScaffold(title = "App settings", onBack = onBack) {
         ToggleRow(
             label = "Show private tracks",
@@ -75,6 +77,11 @@ fun AppSettingsScreen(
         DensitySelector(
             current = density,
             onSelect = viewModel::setGridDensity,
+        )
+        Spacer(Modifier.height(24.dp))
+        ThemeSelector(
+            current = theme,
+            onSelect = viewModel::setThemeMode,
         )
     }
 }
@@ -113,6 +120,42 @@ private fun GridDensity.displayLabel(): String = when (this) {
     GridDensity.LOW -> "Low"
     GridDensity.MEDIUM -> "Medium"
     GridDensity.HIGH -> "High"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ThemeSelector(current: ThemeMode, onSelect: (ThemeMode) -> Unit) {
+    Column {
+        Text(
+            text = "Theme",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Choose how Tickdroid should look.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        val options = ThemeMode.values()
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = current == option,
+                    onClick = { onSelect(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                ) {
+                    Text(option.displayLabel())
+                }
+            }
+        }
+    }
+}
+
+private fun ThemeMode.displayLabel(): String = when (this) {
+    ThemeMode.SYSTEM -> "System"
+    ThemeMode.LIGHT -> "Light"
+    ThemeMode.DARK -> "Dark"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
