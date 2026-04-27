@@ -46,11 +46,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
@@ -62,13 +65,31 @@ import java.util.Date
 import java.util.Locale
 
 private val DayLabelWidth = 84.dp
-private val CellSize = 48.dp
-private val CellGap = 4.dp
+private val CellGap = 6.dp
+private val RightPad = 16.dp
+private val MinCellSize = 28.dp
+private val MaxCellSize = 64.dp
+
+/**
+ * Cell width sized so that exactly N cells are fully visible plus a half-cell peek,
+ * where N is [GridDensity.visibleTracks]. When fewer tracks exist than fit, the row
+ * simply has trailing whitespace instead of a peek; cells stay the same size.
+ */
+@Composable
+private fun computeCellSize(density: GridDensity): Dp {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val gridWidth = screenWidth - DayLabelWidth - RightPad
+    val n = density.visibleTracks
+    val raw = (gridWidth - CellGap * n) / (n + 0.5f)
+    return raw.coerceIn(MinCellSize, MaxCellSize)
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JournalScreen(
-    onOpenSettings: () -> Unit = {},
+    onOpenAccount: () -> Unit = {},
+    onOpenAppSettings: () -> Unit = {},
+    onOpenTracksSettings: () -> Unit = {},
     viewModel: JournalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -81,7 +102,11 @@ fun JournalScreen(
                 title = { Text("Tickdroid") },
                 actions = {
                     SyncIndicator(state.syncStatus)
-                    OverflowMenu(onOpenSettings = onOpenSettings)
+                    OverflowMenu(
+                        onOpenAccount = onOpenAccount,
+                        onOpenAppSettings = onOpenAppSettings,
+                        onOpenTracksSettings = onOpenTracksSettings,
+                    )
                 },
                 scrollBehavior = scrollBehavior,
             )
@@ -139,8 +164,10 @@ private fun JournalGrid(
         if (nearBottom) onLoadOlder()
     }
 
+    val cellSize = computeCellSize(state.density)
+
     Column(Modifier.fillMaxSize()) {
-        TrackHeader(tracks, gridScroll)
+        TrackHeader(tracks, gridScroll, cellSize)
         HorizontalDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(items = days, key = { it.toEpochDay() }) { day ->
@@ -150,6 +177,7 @@ private fun JournalGrid(
                     tracks = tracks,
                     ticks = state.ticks,
                     gridScroll = gridScroll,
+                    cellSize = cellSize,
                 )
             }
             item {
@@ -167,9 +195,13 @@ private fun JournalGrid(
 }
 
 @Composable
-private fun TrackHeader(tracks: List<Track>, gridScroll: androidx.compose.foundation.ScrollState) {
+private fun TrackHeader(
+    tracks: List<Track>,
+    gridScroll: androidx.compose.foundation.ScrollState,
+    cellSize: Dp,
+) {
     Surface(color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth()) {
+        Row(Modifier.fillMaxWidth().padding(end = RightPad)) {
             Spacer(Modifier.width(DayLabelWidth))
             Row(
                 modifier = Modifier.horizontalScroll(gridScroll),
@@ -178,8 +210,8 @@ private fun TrackHeader(tracks: List<Track>, gridScroll: androidx.compose.founda
                 tracks.forEach { track ->
                     Box(
                         modifier = Modifier
-                            .size(CellSize)
-                            .padding(vertical = 8.dp),
+                            .width(cellSize)
+                            .height(40.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         Text(
@@ -201,6 +233,7 @@ private fun DayRow(
     tracks: List<Track>,
     ticks: Map<TickKey, Tick>,
     gridScroll: androidx.compose.foundation.ScrollState,
+    cellSize: Dp,
 ) {
     val isWeekend = remember(day) {
         val cal = android.icu.util.Calendar.getInstance(Locale.getDefault())
@@ -213,7 +246,8 @@ private fun DayRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(rowBg)
-            .padding(vertical = 4.dp),
+            .padding(vertical = CellGap / 2)
+            .padding(end = RightPad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         DayLabel(day, today)
@@ -223,7 +257,7 @@ private fun DayRow(
         ) {
             tracks.forEach { track ->
                 val tick = ticks[TickKey(track.localId, day)]
-                TickCell(track = track, tick = tick)
+                TickCell(track = track, tick = tick, cellSize = cellSize)
             }
         }
     }
@@ -247,7 +281,7 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
 }
 
 @Composable
-private fun TickCell(track: Track, tick: Tick?) {
+private fun TickCell(track: Track, tick: Tick?, cellSize: Dp) {
     val ticked = tick != null && tick.value > 0
     val container = when {
         track.type == TrackType.COUNTER && ticked -> MaterialTheme.colorScheme.tertiaryContainer
@@ -261,7 +295,7 @@ private fun TickCell(track: Track, tick: Tick?) {
     }
     Box(
         modifier = Modifier
-            .size(CellSize)
+            .size(cellSize)
             .clip(RoundedCornerShape(12.dp))
             .background(container),
         contentAlignment = Alignment.Center,
@@ -294,7 +328,11 @@ private fun SyncIndicator(status: SyncStatus) {
 }
 
 @Composable
-private fun OverflowMenu(onOpenSettings: () -> Unit) {
+private fun OverflowMenu(
+    onOpenAccount: () -> Unit,
+    onOpenAppSettings: () -> Unit,
+    onOpenTracksSettings: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { expanded = true }) {
@@ -302,10 +340,24 @@ private fun OverflowMenu(onOpenSettings: () -> Unit) {
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             DropdownMenuItem(
-                text = { Text("Settings") },
+                text = { Text("Account") },
                 onClick = {
                     expanded = false
-                    onOpenSettings()
+                    onOpenAccount()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("App settings") },
+                onClick = {
+                    expanded = false
+                    onOpenAppSettings()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("Tracks settings") },
+                onClick = {
+                    expanded = false
+                    onOpenTracksSettings()
                 },
             )
         }

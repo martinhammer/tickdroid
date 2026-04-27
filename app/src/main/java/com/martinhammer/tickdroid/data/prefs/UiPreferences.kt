@@ -19,12 +19,23 @@ class UiPreferences @Inject constructor(
     private val _showPrivate = MutableStateFlow(prefs.getBoolean(KEY_SHOW_PRIVATE, false))
     val showPrivate: StateFlow<Boolean> = _showPrivate.asStateFlow()
 
+    private val _gridDensity = MutableStateFlow(
+        GridDensity.fromName(prefs.getString(KEY_GRID_DENSITY, null))
+    )
+    val gridDensity: StateFlow<GridDensity> = _gridDensity.asStateFlow()
+
     fun setShowPrivate(value: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_PRIVATE, value).apply()
         _showPrivate.value = value
     }
 
+    fun setGridDensity(value: GridDensity) {
+        prefs.edit().putString(KEY_GRID_DENSITY, value.name).apply()
+        _gridDensity.value = value
+    }
+
     private companion object {
         const val KEY_SHOW_PRIVATE = "show_private_tracks"
+        const val KEY_GRID_DENSITY = "grid_density"
     }
 }

@@ -11,12 +11,16 @@ import androidx.navigation.compose.rememberNavController
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.ui.auth.AuthScreen
 import com.martinhammer.tickdroid.ui.journal.JournalScreen
-import com.martinhammer.tickdroid.ui.settings.SettingsScreen
+import com.martinhammer.tickdroid.ui.settings.AccountSettingsScreen
+import com.martinhammer.tickdroid.ui.settings.AppSettingsScreen
+import com.martinhammer.tickdroid.ui.settings.TracksSettingsScreen
 
 object Routes {
     const val AUTH = "auth"
     const val JOURNAL = "journal"
-    const val SETTINGS = "settings"
+    const val SETTINGS_ACCOUNT = "settings/account"
+    const val SETTINGS_APP = "settings/app"
+    const val SETTINGS_TRACKS = "settings/tracks"
 }
 
 @Composable
@@ -35,10 +39,20 @@ fun TickdroidApp(rootViewModel: RootViewModel = hiltViewModel()) {
     ) {
         composable(Routes.AUTH) { AuthScreen() }
         composable(Routes.JOURNAL) {
-            JournalScreen(onOpenSettings = { navController.navigate(Routes.SETTINGS) })
+            JournalScreen(
+                onOpenAccount = { navController.navigate(Routes.SETTINGS_ACCOUNT) },
+                onOpenAppSettings = { navController.navigate(Routes.SETTINGS_APP) },
+                onOpenTracksSettings = { navController.navigate(Routes.SETTINGS_TRACKS) },
+            )
         }
-        composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+        composable(Routes.SETTINGS_ACCOUNT) {
+            AccountSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.SETTINGS_APP) {
+            AppSettingsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.SETTINGS_TRACKS) {
+            TracksSettingsScreen(onBack = { navController.popBackStack() })
         }
     }
 }

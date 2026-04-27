@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui.journal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
@@ -33,6 +34,7 @@ data class JournalUiState(
     val ticks: Map<TickKey, Tick> = emptyMap(),
     val window: DateWindow = DateWindow(LocalDate.now().minusDays(29), LocalDate.now()),
     val syncStatus: SyncStatus = SyncStatus.Idle,
+    val density: GridDensity = GridDensity.Default,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -50,15 +52,17 @@ class JournalViewModel @Inject constructor(
 
     private val ticks = _window.flatMapLatest { tickRepository.observeRange(it.oldestVisible, it.today) }
 
+    private val prefs = combine(uiPreferences.showPrivate, uiPreferences.gridDensity) { sp, d -> sp to d }
+
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
         ticks,
         _window,
         syncManager.status,
-        uiPreferences.showPrivate,
-    ) { tracks, ticks, window, sync, showPrivate ->
+        prefs,
+    ) { tracks, ticks, window, sync, (showPrivate, density) ->
         val visible = if (showPrivate) tracks else tracks.filterNot { it.private }
-        JournalUiState(tracks = visible, ticks = ticks, window = window, syncStatus = sync)
+        JournalUiState(tracks = visible, ticks = ticks, window = window, syncStatus = sync, density = density)
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
