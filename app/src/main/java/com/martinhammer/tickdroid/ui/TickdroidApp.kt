@@ -15,7 +15,10 @@ import com.martinhammer.tickdroid.ui.auth.AuthScreen
 import com.martinhammer.tickdroid.ui.journal.JournalScreen
 import com.martinhammer.tickdroid.ui.settings.AccountSettingsScreen
 import com.martinhammer.tickdroid.ui.settings.AppSettingsScreen
+import com.martinhammer.tickdroid.ui.settings.TrackDetailScreen
 import com.martinhammer.tickdroid.ui.settings.TracksSettingsScreen
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.martinhammer.tickdroid.ui.theme.TickdroidTheme
 
 object Routes {
@@ -24,6 +27,8 @@ object Routes {
     const val SETTINGS_ACCOUNT = "settings/account"
     const val SETTINGS_APP = "settings/app"
     const val SETTINGS_TRACKS = "settings/tracks"
+    const val SETTINGS_TRACK_DETAIL = "settings/tracks/{localId}"
+    fun trackDetail(localId: Long): String = "settings/tracks/$localId"
 }
 
 @Composable
@@ -69,7 +74,16 @@ private fun TickdroidNav(authState: AuthState) {
             AppSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.SETTINGS_TRACKS) {
-            TracksSettingsScreen(onBack = { navController.popBackStack() })
+            TracksSettingsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenTrack = { localId -> navController.navigate(Routes.trackDetail(localId)) },
+            )
+        }
+        composable(
+            route = Routes.SETTINGS_TRACK_DETAIL,
+            arguments = listOf(navArgument("localId") { type = NavType.LongType }),
+        ) {
+            TrackDetailScreen(onBack = { navController.popBackStack() })
         }
     }
 }

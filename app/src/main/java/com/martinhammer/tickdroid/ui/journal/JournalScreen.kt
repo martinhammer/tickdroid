@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,13 +61,16 @@ import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
+import com.martinhammer.tickdroid.domain.TrackColor
+import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
 import java.util.Locale
 
-private val DayLabelWidth = 84.dp
+private val DayLabelWidth = 92.dp
 private val CellGap = 6.dp
 private val RightPad = 16.dp
 private val MinCellSize = 28.dp
@@ -181,9 +185,10 @@ private fun JournalGrid(
     }
 
     val cellSize = computeCellSize(state.density)
+    val prefsMap = state.trackPrefs
 
     Column(Modifier.fillMaxSize()) {
-        TrackHeader(tracks, gridScroll, cellSize)
+        TrackHeader(tracks, prefsMap, gridScroll, cellSize)
         HorizontalDivider()
         LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
             items(items = days, key = { it.toEpochDay() }) { day ->
@@ -191,6 +196,7 @@ private fun JournalGrid(
                     day = day,
                     today = state.window.today,
                     tracks = tracks,
+                    prefsMap = prefsMap,
                     ticks = state.ticks,
                     gridScroll = gridScroll,
                     cellSize = cellSize,
@@ -213,6 +219,7 @@ private fun JournalGrid(
 @Composable
 private fun TrackHeader(
     tracks: List<Track>,
+    prefsMap: Map<Long, TrackPrefs>,
     gridScroll: androidx.compose.foundation.ScrollState,
     cellSize: Dp,
 ) {
@@ -224,17 +231,26 @@ private fun TrackHeader(
                 horizontalArrangement = Arrangement.spacedBy(CellGap),
             ) {
                 tracks.forEach { track ->
+                    val prefs = track.serverId?.let { prefsMap[it] }
                     Box(
                         modifier = Modifier
                             .width(cellSize)
                             .height(40.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = track.name.take(2).uppercase(Locale.getDefault()),
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        if (prefs?.emoji != null) {
+                            Text(
+                                text = prefs.emoji,
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.desaturatedEmoji(),
+                            )
+                        } else {
+                            Text(
+                                text = track.name.take(2).uppercase(Locale.getDefault()),
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 }
             }
@@ -247,6 +263,7 @@ private fun DayRow(
     day: LocalDate,
     today: LocalDate,
     tracks: List<Track>,
+    prefsMap: Map<Long, TrackPrefs>,
     ticks: Map<TickKey, Tick>,
     gridScroll: androidx.compose.foundation.ScrollState,
     cellSize: Dp,
@@ -273,7 +290,8 @@ private fun DayRow(
         ) {
             tracks.forEach { track ->
                 val tick = ticks[TickKey(track.localId, day)]
-                TickCell(track = track, tick = tick, cellSize = cellSize)
+                val prefs = track.serverId?.let { prefsMap[it] }
+                TickCell(track = track, tick = tick, prefs = prefs, cellSize = cellSize)
             }
         }
     }
@@ -291,20 +309,35 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
         else -> dateFormat.format(Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant()))
     }
     Column(modifier = Modifier.width(DayLabelWidth).padding(start = 12.dp)) {
-        Text(dow, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            text = dow,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            softWrap = false,
+        )
+        Text(
+            text = sub,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            softWrap = false,
+        )
     }
 }
 
 @Composable
-private fun TickCell(track: Track, tick: Tick?, cellSize: Dp) {
+private fun TickCell(track: Track, tick: Tick?, prefs: TrackPrefs?, cellSize: Dp) {
     val ticked = tick != null && tick.value > 0
+    val customColor = TrackColor.fromKey(prefs?.colorKey)
     val container = when {
+        ticked && customColor != null -> customColor.container
         track.type == TrackType.COUNTER && ticked -> MaterialTheme.colorScheme.tertiaryContainer
         ticked -> MaterialTheme.colorScheme.primaryContainer
         else -> MaterialTheme.colorScheme.surfaceContainerHighest
     }
     val onContainer = when {
+        ticked && customColor != null -> customColor.onContainer
         track.type == TrackType.COUNTER && ticked -> MaterialTheme.colorScheme.onTertiaryContainer
         ticked -> MaterialTheme.colorScheme.onPrimaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -331,6 +364,9 @@ private fun TickCell(track: Track, tick: Tick?, cellSize: Dp) {
                 modifier = Modifier.size(cellSize * 0.6f),
             )
         }
+        // Reserved for editable day cells: when the day becomes user-editable,
+        // surface a faint Icons.Filled.Add in empty counter cells as a tap affordance.
+        // Currently the journal is read-only, so the indicator is suppressed.
     }
 }
 

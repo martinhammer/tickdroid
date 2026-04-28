@@ -4,11 +4,12 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [TrackEntity::class, TickEntity::class],
-    version = 1,
+    entities = [TrackEntity::class, TickEntity::class, TrackPrefsEntity::class],
+    version = 2,
     exportSchema = false,
 )
 abstract class TickdroidDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun tickDao(): TickDao
+    abstract fun trackPrefsDao(): TrackPrefsDao
 }

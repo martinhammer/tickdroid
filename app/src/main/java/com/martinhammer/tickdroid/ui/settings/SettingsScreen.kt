@@ -1,16 +1,25 @@
 package com.martinhammer.tickdroid.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,13 +35,21 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.ThemeMode
+import com.martinhammer.tickdroid.domain.Track
+import com.martinhammer.tickdroid.domain.TrackColor
+import com.martinhammer.tickdroid.domain.TrackPrefs
+import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -160,13 +177,111 @@ private fun ThemeMode.displayLabel(): String = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TracksSettingsScreen(onBack: () -> Unit) {
-    SettingsScaffold(title = "Tracks settings", onBack = onBack) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+fun TracksSettingsScreen(
+    onBack: () -> Unit,
+    onOpenTrack: (Long) -> Unit = {},
+    viewModel: TracksSettingsViewModel = hiltViewModel(),
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Tracks settings") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        when {
+            !state.loaded -> Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+            }
+            state.rows.isEmpty() -> Box(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            else -> LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(vertical = 8.dp),
+            ) {
+                items(items = state.rows, key = { it.track.localId }) { row ->
+                    TrackPrefsRow(row = row, onClick = { onOpenTrack(row.track.localId) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackPrefsRow(row: TrackRowState, onClick: () -> Unit) {
+    val track = row.track
+    val prefs = row.prefs
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        TrackBadge(track = track, prefs = prefs)
+        Text(
+            text = track.name,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun TrackBadge(track: Track, prefs: TrackPrefs) {
+    val customColor = TrackColor.fromKey(prefs.colorKey)
+    val container = customColor?.container ?: if (track.type == TrackType.COUNTER) {
+        MaterialTheme.colorScheme.tertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.primaryContainer
+    }
+    val onContainer = customColor?.onContainer ?: if (track.type == TrackType.COUNTER) {
+        MaterialTheme.colorScheme.onTertiaryContainer
+    } else {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    }
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(CircleShape)
+            .background(container),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (prefs.emoji != null) {
             Text(
-                "No tracks settings yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                text = prefs.emoji,
+                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.desaturatedEmoji(),
+            )
+        } else {
+            Text(
+                text = track.name.take(2).uppercase(Locale.getDefault()),
+                color = onContainer,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }

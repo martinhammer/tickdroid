@@ -6,11 +6,13 @@ import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
+import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
 import com.martinhammer.tickdroid.data.sync.SyncManager
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
+import com.martinhammer.tickdroid.domain.TrackPrefs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -37,6 +39,7 @@ data class JournalUiState(
     val density: GridDensity = GridDensity.Default,
     val loaded: Boolean = false,
     val hasHiddenPrivateTracks: Boolean = false,
+    val trackPrefs: Map<Long, TrackPrefs> = emptyMap(),
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -46,6 +49,7 @@ class JournalViewModel @Inject constructor(
     private val tickRepository: TickRepository,
     private val syncManager: SyncManager,
     uiPreferences: UiPreferences,
+    trackPrefsRepository: TrackPrefsRepository,
 ) : ViewModel() {
 
     private val today = LocalDate.now()
@@ -54,7 +58,17 @@ class JournalViewModel @Inject constructor(
 
     private val ticks = _window.flatMapLatest { tickRepository.observeRange(it.oldestVisible, it.today) }
 
-    private val prefs = combine(uiPreferences.showPrivate, uiPreferences.gridDensity) { sp, d -> sp to d }
+    private data class PrefsBundle(
+        val showPrivate: Boolean,
+        val density: GridDensity,
+        val trackPrefs: Map<Long, TrackPrefs>,
+    )
+
+    private val prefs = combine(
+        uiPreferences.showPrivate,
+        uiPreferences.gridDensity,
+        trackPrefsRepository.observeAll(),
+    ) { sp, d, tp -> PrefsBundle(sp, d, tp) }
 
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
@@ -62,16 +76,17 @@ class JournalViewModel @Inject constructor(
         _window,
         syncManager.status,
         prefs,
-    ) { tracks, ticks, window, sync, (showPrivate, density) ->
-        val visible = if (showPrivate) tracks else tracks.filterNot { it.private }
+    ) { tracks, ticks, window, sync, prefsBundle ->
+        val visible = if (prefsBundle.showPrivate) tracks else tracks.filterNot { it.private }
         JournalUiState(
             tracks = visible,
             ticks = ticks,
             window = window,
             syncStatus = sync,
-            density = density,
+            density = prefsBundle.density,
             loaded = true,
-            hasHiddenPrivateTracks = !showPrivate && tracks.any { it.private },
+            hasHiddenPrivateTracks = !prefsBundle.showPrivate && tracks.any { it.private },
+            trackPrefs = prefsBundle.trackPrefs,
         )
     }.stateIn(
         scope = viewModelScope,
