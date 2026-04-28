@@ -29,6 +29,11 @@ class UiPreferences @Inject constructor(
     )
     val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
 
+    private val _editableDays = MutableStateFlow(
+        EditableDays.fromName(prefs.getString(KEY_EDITABLE_DAYS, null))
+    )
+    val editableDays: StateFlow<EditableDays> = _editableDays.asStateFlow()
+
     fun setShowPrivate(value: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_PRIVATE, value).apply()
         _showPrivate.value = value
@@ -44,9 +49,15 @@ class UiPreferences @Inject constructor(
         _themeMode.value = value
     }
 
+    fun setEditableDays(value: EditableDays) {
+        prefs.edit().putString(KEY_EDITABLE_DAYS, value.name).apply()
+        _editableDays.value = value
+    }
+
     private companion object {
         const val KEY_SHOW_PRIVATE = "show_private_tracks"
         const val KEY_GRID_DENSITY = "grid_density"
         const val KEY_THEME_MODE = "theme_mode"
+        const val KEY_EDITABLE_DAYS = "editable_days"
     }
 }

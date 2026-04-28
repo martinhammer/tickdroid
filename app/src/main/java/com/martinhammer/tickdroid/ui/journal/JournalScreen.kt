@@ -1,6 +1,8 @@
 package com.martinhammer.tickdroid.ui.journal
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,13 +51,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.sync.SyncStatus
@@ -128,6 +134,8 @@ fun JournalScreen(
             JournalGrid(
                 state = state,
                 onLoadOlder = { viewModel.loadOlder() },
+                onToggleBoolean = viewModel::toggleBoolean,
+                onAdjustCounter = viewModel::adjustCounter,
             )
         }
     }
@@ -137,6 +145,8 @@ fun JournalScreen(
 private fun JournalGrid(
     state: JournalUiState,
     onLoadOlder: () -> Unit,
+    onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
+    onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
 ) {
     val tracks = state.tracks
     if (tracks.isEmpty()) {
@@ -200,6 +210,9 @@ private fun JournalGrid(
                     ticks = state.ticks,
                     gridScroll = gridScroll,
                     cellSize = cellSize,
+                    editableDays = state.editableDays,
+                    onToggleBoolean = onToggleBoolean,
+                    onAdjustCounter = onAdjustCounter,
                 )
             }
             item {
@@ -267,7 +280,11 @@ private fun DayRow(
     ticks: Map<TickKey, Tick>,
     gridScroll: androidx.compose.foundation.ScrollState,
     cellSize: Dp,
+    editableDays: EditableDays,
+    onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
+    onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
 ) {
+    val editable = editableDays.isEditable(day, today)
     val isWeekend = remember(day) {
         val cal = android.icu.util.Calendar.getInstance(Locale.getDefault())
         cal.time = Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant())
@@ -291,7 +308,15 @@ private fun DayRow(
             tracks.forEach { track ->
                 val tick = ticks[TickKey(track.localId, day)]
                 val prefs = track.serverId?.let { prefsMap[it] }
-                TickCell(track = track, tick = tick, prefs = prefs, cellSize = cellSize)
+                TickCell(
+                    track = track,
+                    tick = tick,
+                    prefs = prefs,
+                    cellSize = cellSize,
+                    editable = editable,
+                    onToggleBoolean = { onToggleBoolean(track.localId, day) },
+                    onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
+                )
             }
         }
     }
@@ -326,8 +351,17 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TickCell(track: Track, tick: Tick?, prefs: TrackPrefs?, cellSize: Dp) {
+private fun TickCell(
+    track: Track,
+    tick: Tick?,
+    prefs: TrackPrefs?,
+    cellSize: Dp,
+    editable: Boolean,
+    onToggleBoolean: () -> Unit,
+    onAdjustCounter: (delta: Int) -> Unit,
+) {
     val ticked = tick != null && tick.value > 0
     val customColor = TrackColor.fromKey(prefs?.colorKey)
     val container = when {
@@ -342,31 +376,85 @@ private fun TickCell(track: Track, tick: Tick?, prefs: TrackPrefs?, cellSize: Dp
         ticked -> MaterialTheme.colorScheme.onPrimaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
+    val haptics = LocalHapticFeedback.current
+    val context = LocalContext.current
+    val tapModifier = if (editable) {
+        when (track.type) {
+            TrackType.BOOLEAN -> Modifier.combinedClickable(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onToggleBoolean()
+                },
+            )
+            TrackType.COUNTER -> Modifier.combinedClickable(
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    onAdjustCounter(1)
+                },
+                onLongClick = {
+                    if (ticked) {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onAdjustCounter(-1)
+                    }
+                },
+            )
+        }
+    } else {
+        Modifier.combinedClickable(
+            onClick = {
+                android.widget.Toast.makeText(
+                    context,
+                    "This day is locked. Select editable days in App settings.",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            },
+        )
+    }
+
     Box(
         modifier = Modifier
             .size(cellSize)
             .clip(RoundedCornerShape(12.dp))
-            .background(container),
+            .background(container)
+            .then(tapModifier),
         contentAlignment = Alignment.Center,
     ) {
-        if (track.type == TrackType.COUNTER && ticked) {
-            Text(
-                text = tick!!.value.toString(),
-                color = onContainer,
-                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
-                fontWeight = FontWeight.SemiBold,
-            )
-        } else if (ticked) {
-            Icon(
-                imageVector = Icons.Filled.Check,
-                contentDescription = null,
-                tint = onContainer,
-                modifier = Modifier.size(cellSize * 0.6f),
-            )
+        when {
+            track.type == TrackType.COUNTER && ticked -> {
+                Text(
+                    text = tick!!.value.toString(),
+                    color = onContainer,
+                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            ticked -> {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = onContainer,
+                    modifier = Modifier.size(cellSize * 0.6f),
+                )
+            }
+            editable && track.type == TrackType.COUNTER -> {
+                // Faint affordance hinting "tap to add" on editable empty counter cells.
+                Icon(
+                    imageVector = Icons.Filled.Add,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    modifier = Modifier.size(cellSize * 0.5f),
+                )
+            }
+            editable && track.type == TrackType.BOOLEAN -> {
+                // Faint interpunct hinting "tap to tick" on editable empty boolean cells.
+                Text(
+                    text = "·",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+                    fontSize = (cellSize.value * 0.5f).sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
-        // Reserved for editable day cells: when the day becomes user-editable,
-        // surface a faint Icons.Filled.Add in empty counter cells as a tap affordance.
-        // Currently the journal is read-only, so the indicator is suppressed.
     }
 }
 

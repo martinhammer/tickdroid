@@ -33,6 +33,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.domain.Track
@@ -84,11 +85,17 @@ fun AppSettingsScreen(
     val showPrivate by viewModel.showPrivate.collectAsStateWithLifecycle()
     val density by viewModel.gridDensity.collectAsStateWithLifecycle()
     val theme by viewModel.themeMode.collectAsStateWithLifecycle()
+    val editableDays by viewModel.editableDays.collectAsStateWithLifecycle()
     SettingsScaffold(title = "App settings", onBack = onBack) {
         ToggleRow(
             label = "Show private tracks",
             checked = showPrivate,
             onCheckedChange = viewModel::setShowPrivate,
+        )
+        Spacer(Modifier.height(24.dp))
+        EditableDaysSelector(
+            current = editableDays,
+            onSelect = viewModel::setEditableDays,
         )
         Spacer(Modifier.height(24.dp))
         DensitySelector(
@@ -137,6 +144,43 @@ private fun GridDensity.displayLabel(): String = when (this) {
     GridDensity.LOW -> "Low"
     GridDensity.MEDIUM -> "Medium"
     GridDensity.HIGH -> "High"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditableDaysSelector(current: EditableDays, onSelect: (EditableDays) -> Unit) {
+    Column {
+        Text(
+            text = "Editable days",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Which past days you can still tick.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        val options = EditableDays.values()
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = current == option,
+                    onClick = { onSelect(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                ) {
+                    Text(option.displayLabel())
+                }
+            }
+        }
+    }
+}
+
+private fun EditableDays.displayLabel(): String = when (this) {
+    EditableDays.ACTIVE_DAY -> "Today"
+    EditableDays.ACTIVE_AND_PREVIOUS -> "+1 day"
+    EditableDays.ONE_WEEK -> "1 week"
+    EditableDays.ALL_DAYS -> "All"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

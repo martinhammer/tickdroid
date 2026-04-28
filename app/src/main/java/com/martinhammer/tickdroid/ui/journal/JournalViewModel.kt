@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui.journal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
@@ -40,6 +41,7 @@ data class JournalUiState(
     val loaded: Boolean = false,
     val hasHiddenPrivateTracks: Boolean = false,
     val trackPrefs: Map<Long, TrackPrefs> = emptyMap(),
+    val editableDays: EditableDays = EditableDays.Default,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -62,13 +64,15 @@ class JournalViewModel @Inject constructor(
         val showPrivate: Boolean,
         val density: GridDensity,
         val trackPrefs: Map<Long, TrackPrefs>,
+        val editableDays: EditableDays,
     )
 
     private val prefs = combine(
         uiPreferences.showPrivate,
         uiPreferences.gridDensity,
         trackPrefsRepository.observeAll(),
-    ) { sp, d, tp -> PrefsBundle(sp, d, tp) }
+        uiPreferences.editableDays,
+    ) { sp, d, tp, ed -> PrefsBundle(sp, d, tp, ed) }
 
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
@@ -87,6 +91,7 @@ class JournalViewModel @Inject constructor(
             loaded = true,
             hasHiddenPrivateTracks = !prefsBundle.showPrivate && tracks.any { it.private },
             trackPrefs = prefsBundle.trackPrefs,
+            editableDays = prefsBundle.editableDays,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -111,5 +116,13 @@ class JournalViewModel @Inject constructor(
         viewModelScope.launch {
             syncManager.pull(newOldest, current.oldestVisible.minusDays(1))
         }
+    }
+
+    fun toggleBoolean(trackLocalId: Long, date: LocalDate) {
+        viewModelScope.launch { tickRepository.toggleBoolean(trackLocalId, date) }
+    }
+
+    fun adjustCounter(trackLocalId: Long, date: LocalDate, delta: Int) {
+        viewModelScope.launch { tickRepository.adjustCounter(trackLocalId, date, delta) }
     }
 }
