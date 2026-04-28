@@ -15,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.time.LocalDate
@@ -25,6 +27,12 @@ sealed interface SyncStatus {
     data object Idle : SyncStatus
     data object Syncing : SyncStatus
     data class Error(val message: String) : SyncStatus
+}
+
+sealed interface PushStatus {
+    data object Idle : PushStatus
+    data object Pushing : PushStatus
+    data class Error(val message: String) : PushStatus
 }
 
 /**
@@ -44,15 +52,34 @@ class SyncManager @Inject constructor(
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
+    private val _pushStatus = MutableStateFlow<PushStatus>(PushStatus.Idle)
+    val pushStatus: StateFlow<PushStatus> = _pushStatus.asStateFlow()
+
+    /** Worker entry point: PushWorker reports its lifecycle here. */
+    fun reportPushStatus(status: PushStatus) {
+        _pushStatus.value = status
+    }
+
+    /**
+     * Serializes pull and push so reconcile snapshots and dirty-row drains never interleave.
+     * Held by [pull] here and by `PushWorker` via [runExclusive].
+     */
+    private val mutex = Mutex()
+
+    /** Run [block] under the same lock that pull uses. PushWorker calls this. */
+    suspend fun <T> runExclusive(block: suspend () -> T): T = mutex.withLock { block() }
+
     suspend fun pull(from: LocalDate, to: LocalDate) = withContext(Dispatchers.IO) {
         if (authRepository.state.value !is AuthState.SignedIn) return@withContext
         _status.value = SyncStatus.Syncing
         try {
-            val tracks = api.getTracks().ocs.data
-            val ticks = api.getTicks(from.toString(), to.toString()).ocs.data
-            db.withTransaction {
-                reconcileTracks(tracks)
-                reconcileTicks(ticks, from.toString(), to.toString())
+            mutex.withLock {
+                val tracks = api.getTracks().ocs.data
+                val ticks = api.getTicks(from.toString(), to.toString()).ocs.data
+                db.withTransaction {
+                    reconcileTracks(tracks)
+                    reconcileTicks(ticks, from.toString(), to.toString())
+                }
             }
             _status.value = SyncStatus.Idle
         } catch (e: IOException) {

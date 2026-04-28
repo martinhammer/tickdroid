@@ -9,6 +9,7 @@ import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
+import com.martinhammer.tickdroid.data.sync.PushStatus
 import com.martinhammer.tickdroid.data.sync.SyncManager
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
@@ -37,6 +38,7 @@ data class JournalUiState(
     val ticks: Map<TickKey, Tick> = emptyMap(),
     val window: DateWindow = DateWindow(LocalDate.now().minusDays(29), LocalDate.now()),
     val syncStatus: SyncStatus = SyncStatus.Idle,
+    val pushStatus: PushStatus = PushStatus.Idle,
     val density: GridDensity = GridDensity.Default,
     val loaded: Boolean = false,
     val hasHiddenPrivateTracks: Boolean = false,
@@ -54,11 +56,16 @@ class JournalViewModel @Inject constructor(
     trackPrefsRepository: TrackPrefsRepository,
 ) : ViewModel() {
 
-    private val today = LocalDate.now()
-    private val _window = MutableStateFlow(DateWindow(today.minusDays(29), today))
-    val window: StateFlow<DateWindow> = _window.asStateFlow()
+    private val initialToday = LocalDate.now()
+    private val _today = MutableStateFlow(initialToday)
+    private val _oldestVisible = MutableStateFlow(initialToday.minusDays(29))
 
-    private val ticks = _window.flatMapLatest { tickRepository.observeRange(it.oldestVisible, it.today) }
+    /** Combined window. Recomposes whenever today rolls over or the user scrolls older. */
+    private val windowFlow = combine(_today, _oldestVisible) { today, oldest ->
+        DateWindow(oldestVisible = oldest, today = today)
+    }
+
+    private val ticks = windowFlow.flatMapLatest { tickRepository.observeRange(it.oldestVisible, it.today) }
 
     private data class PrefsBundle(
         val showPrivate: Boolean,
@@ -74,11 +81,15 @@ class JournalViewModel @Inject constructor(
         uiPreferences.editableDays,
     ) { sp, d, tp, ed -> PrefsBundle(sp, d, tp, ed) }
 
+    private data class SyncStatuses(val pull: SyncStatus, val push: PushStatus)
+
+    private val statuses = combine(syncManager.status, syncManager.pushStatus) { p, q -> SyncStatuses(p, q) }
+
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
         ticks,
-        _window,
-        syncManager.status,
+        windowFlow,
+        statuses,
         prefs,
     ) { tracks, ticks, window, sync, prefsBundle ->
         val visible = if (prefsBundle.showPrivate) tracks else tracks.filterNot { it.private }
@@ -86,7 +97,8 @@ class JournalViewModel @Inject constructor(
             tracks = visible,
             ticks = ticks,
             window = window,
-            syncStatus = sync,
+            syncStatus = sync.pull,
+            pushStatus = sync.push,
             density = prefsBundle.density,
             loaded = true,
             hasHiddenPrivateTracks = !prefsBundle.showPrivate && tracks.any { it.private },
@@ -96,25 +108,28 @@ class JournalViewModel @Inject constructor(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = JournalUiState(window = _window.value),
+        initialValue = JournalUiState(window = DateWindow(_oldestVisible.value, _today.value)),
     )
 
     init {
         refresh()
     }
 
+    /** Re-checks the wall clock (for midnight rollover) and pulls the visible window. */
     fun refresh() {
-        val w = _window.value
-        viewModelScope.launch { syncManager.pull(w.oldestVisible, w.today) }
+        _today.value = LocalDate.now()
+        val oldest = _oldestVisible.value
+        val today = _today.value
+        viewModelScope.launch { syncManager.pull(oldest, today) }
     }
 
     /** Extend the window 30 more days into the past and pull the newly visible chunk. */
     fun loadOlder() {
-        val current = _window.value
-        val newOldest = current.oldestVisible.minusDays(30)
-        _window.value = current.copy(oldestVisible = newOldest)
+        val previousOldest = _oldestVisible.value
+        val newOldest = previousOldest.minusDays(30)
+        _oldestVisible.value = newOldest
         viewModelScope.launch {
-            syncManager.pull(newOldest, current.oldestVisible.minusDays(1))
+            syncManager.pull(newOldest, previousOldest.minusDays(1))
         }
     }
 

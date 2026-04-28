@@ -28,13 +28,17 @@ class SyncScheduler @Inject constructor(
         .setRequiredNetworkType(NetworkType.CONNECTED)
         .build()
 
-    /** Enqueue a one-off push attempt. Replaces any pending one-off so writes coalesce. */
+    /**
+     * Enqueue a one-off push attempt. If a worker is already running we append a follow-up
+     * (so writes made during a drain still get pushed); a pending-but-not-started worker is
+     * replaced to coalesce bursts.
+     */
     fun schedulePushNow() {
         val request = OneTimeWorkRequestBuilder<PushWorker>()
             .setConstraints(networkConstraint)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        workManager.enqueueUniqueWork(WORK_PUSH_ONCE, ExistingWorkPolicy.REPLACE, request)
+        workManager.enqueueUniqueWork(WORK_PUSH_ONCE, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     /** Schedule periodic push (idempotent). Call on sign-in. */

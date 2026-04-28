@@ -8,9 +8,11 @@ import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickEntity
+import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import androidx.room.withTransaction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import retrofit2.HttpException
@@ -29,30 +31,45 @@ class PushWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val api: TickbuddyApi,
+    private val database: TickdroidDatabase,
     private val tickDao: TickDao,
     private val trackDao: TrackDao,
     private val authRepository: AuthRepository,
+    private val syncManager: SyncManager,
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result {
-        if (authRepository.state.value !is AuthState.SignedIn) return Result.success()
+    override suspend fun doWork(): Result = syncManager.runExclusive { drain() }
+
+    private suspend fun drain(): Result {
+        if (authRepository.state.value !is AuthState.SignedIn) {
+            syncManager.reportPushStatus(PushStatus.Idle)
+            return Result.success()
+        }
 
         val dirty = tickDao.getDirty()
-        if (dirty.isEmpty()) return Result.success()
+        if (dirty.isEmpty()) {
+            syncManager.reportPushStatus(PushStatus.Idle)
+            return Result.success()
+        }
 
+        syncManager.reportPushStatus(PushStatus.Pushing)
         for (entity in dirty) {
             try {
                 pushOne(entity)
             } catch (e: HttpException) {
                 if (e.code() == 401) {
                     authRepository.signOut()
+                    syncManager.reportPushStatus(PushStatus.Error("Session expired"))
                     return Result.failure()
                 }
+                syncManager.reportPushStatus(PushStatus.Error("HTTP ${e.code()}"))
                 return Result.retry()
             } catch (e: IOException) {
+                syncManager.reportPushStatus(PushStatus.Error(e.message ?: "Network error"))
                 return Result.retry()
             }
         }
+        syncManager.reportPushStatus(PushStatus.Idle)
         return Result.success()
     }
 
@@ -89,17 +106,19 @@ class PushWorker @AssistedInject constructor(
     }
 
     private suspend fun finalize(entity: TickEntity, newValue: Int, newServerId: Long?) {
-        if (newValue == 0) {
-            tickDao.deleteById(entity.localId)
-        } else {
-            tickDao.update(
-                entity.copy(
-                    value = newValue,
-                    serverId = newServerId ?: entity.serverId,
-                    dirty = false,
-                    deleted = false,
-                ),
-            )
+        database.withTransaction {
+            if (newValue == 0) {
+                tickDao.deleteById(entity.localId)
+            } else {
+                tickDao.update(
+                    entity.copy(
+                        value = newValue,
+                        serverId = newServerId ?: entity.serverId,
+                        dirty = false,
+                        deleted = false,
+                    ),
+                )
+            }
         }
     }
 

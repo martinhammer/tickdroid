@@ -25,6 +25,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -60,10 +63,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.repository.TickKey
+import com.martinhammer.tickdroid.data.sync.PushStatus
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
@@ -107,12 +113,16 @@ fun JournalScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
+    // Refresh on resume so today rolls over (and pull catches changes from other devices).
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             LargeTopAppBar(
                 title = { Text("Tickdroid") },
                 actions = {
+                    SyncErrorChip(pull = state.syncStatus, push = state.pushStatus)
                     SyncIndicator(state.syncStatus)
                     OverflowMenu(
                         onOpenAccount = onOpenAccount,
@@ -460,18 +470,37 @@ private fun TickCell(
 
 @Composable
 private fun SyncIndicator(status: SyncStatus) {
-    when (status) {
-        SyncStatus.Syncing -> CircularProgressIndicator(
+    if (status is SyncStatus.Syncing) {
+        CircularProgressIndicator(
             strokeWidth = 2.dp,
             modifier = Modifier.size(18.dp).padding(end = 12.dp),
         )
-        is SyncStatus.Error -> Text(
-            text = "!",
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(end = 16.dp),
-        )
-        SyncStatus.Idle -> Unit
     }
+}
+
+@Composable
+private fun SyncErrorChip(pull: SyncStatus, push: PushStatus) {
+    val hasError = pull is SyncStatus.Error || push is PushStatus.Error
+    if (!hasError) return
+    AssistChip(
+        onClick = {},
+        enabled = false,
+        label = { Text("Sync error") },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.CloudOff,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            disabledContainerColor = MaterialTheme.colorScheme.errorContainer,
+            disabledLabelColor = MaterialTheme.colorScheme.onErrorContainer,
+            disabledLeadingIconContentColor = MaterialTheme.colorScheme.onErrorContainer,
+        ),
+        border = null,
+        modifier = Modifier.padding(end = 8.dp),
+    )
 }
 
 @Composable

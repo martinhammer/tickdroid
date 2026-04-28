@@ -2,142 +2,209 @@
 
 Companion Android app to the Tickbuddy Nextcloud webapp. See `README.md` for product context and `mobile_instructions.md` for the authoritative API / sync handoff doc (the code wins if it disagrees).
 
-This file captures the plan agreed before coding started. Update it as decisions change.
+This file captures the current state of the codebase and decisions made along the way. Update it as decisions change.
 
 ## Scope decisions (v1)
 
-- **Auth**: pasted Nextcloud app password. Login Flow v2 stubbed but not implemented — leave a seam in `AuthRepository`.
+- **Auth**: pasted Nextcloud app password. Login Flow v2 stubbed but not implemented — seam exists in `AuthRepository.beginLoginFlowV2()`.
+- **HTTPS only**: the early "Allow http://" toggle was removed. `ServerUrl.normalize` rejects anything but `https://`.
 - **History depth**: full database, infinite scroll backwards in 30-day windows from day 1.
-- **Private tracks**: simple show/hide toggle (matches web). No PIN/biometric gate.
-- **Counter UX**: short press increments, long press decrements.
-- **Out of scope for v1** (deferred): track management (add/edit/delete/reorder), Login Flow v2, import/export, widget, daily reminder.
+- **Private tracks**: simple show/hide toggle (App settings → Show private tracks). No PIN/biometric gate.
+- **Counter UX**: short tap +1, long tap −1 (no-op when value is already 0).
+- **Counter conflicts**: silent last-write-wins. The backend has no `/inc` endpoint, so two devices both incrementing on the same day will lose one increment. Acceptable for v1; not surfaced in UI.
+- **Sign-out**: wipes the local Room database (`clearAllTables()`) so the next user on the same device doesn't inherit cached data or queued writes. App-level prefs (`UiPreferences`) are device-wide and **not** wiped — see "Tech debt".
+- **Editability**: configurable in App settings. Choices: today only / today + previous day / last 7 days / all past days. Future days never editable. Tapping a locked cell shows a Toast.
+- **Out of scope for v1** (deferred): track management (add/edit/delete/reorder), Login Flow v2, import/export, widget, daily reminder, real schema migrations.
 
 ## Tech stack
 
-Skeleton already on Compose + Material3, `minSdk 31` (Material You / dynamic color usable directly).
-
 | Concern | Choice |
 |---|---|
-| DI | Hilt |
+| DI | Hilt + `androidx.hilt:hilt-work` for `@HiltWorker` |
 | Async | Kotlin Coroutines + Flow |
-| Local DB | Room |
+| Local DB | Room (currently schema v2; `fallbackToDestructiveMigration` while pre-release) |
 | HTTP | Retrofit + OkHttp + kotlinx.serialization |
-| Background sync | WorkManager |
-| Secure storage | EncryptedSharedPreferences (MasterKey/Keystore) |
-| Navigation | Navigation-Compose (type-safe) |
-| Date/time | java.time (`LocalDate`) |
-| Testing | JUnit + Turbine + MockWebServer |
+| Background sync | WorkManager (manifest disables auto-init; Hilt provides config) |
+| Secure storage | EncryptedSharedPreferences (`security-crypto` alpha) for credentials |
+| App prefs | Plain SharedPreferences via `UiPreferences` |
+| Navigation | Navigation-Compose |
+| Date/time | `java.time` (`LocalDate`); `android.icu.util.Calendar` for locale-aware weekend; `android.text.format.DateFormat` for the user-set date format |
+| Testing | JUnit + Turbine + MockWebServer (no tests written yet — Phase 5) |
 
-## Package layout (single module for now)
+`compileSdk = 36`, `minSdk = 31`, `targetSdk = 36`.
+
+## Package layout (single module)
 
 ```
 com.martinhammer.tickdroid
 ├── data
-│   ├── local        // Room entities, DAOs, database
-│   ├── remote       // Retrofit API, OCS envelope, DTOs, auth interceptor
-│   ├── repository   // TrackRepository, TickRepository (single source = Room)
-│   └── sync         // SyncManager, WorkManager workers, conflict policy
-├── domain           // pure-Kotlin models (Track, Tick, TrackType)
+│   ├── auth         // AuthRepository, EncryptedCredentialStore, AuthProber, AuthState
+│   ├── local        // Room entities, DAOs, database (TickdroidDatabase)
+│   ├── prefs        // UiPreferences + enums (GridDensity, ThemeMode, EditableDays)
+│   ├── remote       // TickbuddyApi, OCS envelope, DTOs, OcsHeaders/BasicAuth interceptors, ServerUrl
+│   ├── repository   // TrackRepository, TickRepository, TrackPrefsRepository, mapping
+│   └── sync         // SyncManager (pull), PushWorker, SyncScheduler, SyncCoordinator
+├── domain           // Track, Tick, TrackType, TrackPrefs, TrackColor
 ├── ui
+│   ├── auth         // AuthScreen, AuthViewModel (with help bottom sheet)
+│   ├── common       // EmojiRender (desaturatedEmoji modifier)
+│   ├── journal      // JournalScreen, JournalViewModel
+│   ├── settings     // AccountSettingsScreen, AppSettingsScreen, TracksSettingsScreen, TrackDetailScreen, SettingsViewModel, TracksSettingsViewModel, TrackDetailViewModel
 │   ├── theme        // Material You / dynamic color
-│   ├── journal      // grid screen (today + history)
-│   ├── auth         // server URL + login + app password setup
-│   └── common       // reusable composables (TickCell, CounterCell, etc.)
-└── di               // Hilt modules
+│   ├── RootViewModel, TickdroidApp (NavHost), Routes
+└── di               // NetworkModule, DatabaseModule
 ```
 
 Repository layer is the single source of truth: UI observes Room via Flow; sync layer is the only thing that touches the network.
 
 ## Data layer
 
-**Room schema** mirrors `mobile_instructions.md` §4:
+**Room schema (v2)**:
 
-- `tracks(local_id PK, server_id?, name, type, sort_order, private, dirty, deleted, updated_at_local)`
-- `ticks(local_id PK, server_id?, track_local_id FK, date TEXT, value INT, dirty, deleted, updated_at_local)` — unique index on `(track_local_id, date)`.
+- `tracks(localId PK, serverId?, name, type, sortOrder, private, dirty, deleted, updatedAtLocal)` — `dirty/deleted/updatedAtLocal` are inert in v1 (no track CRUD on mobile).
+- `ticks(localId PK, serverId?, trackLocalId FK, date TEXT, value INT, dirty, deleted, updatedAtLocal)` — unique index on `(trackLocalId, date)`.
+- `track_prefs(serverId PK, colorKey?, emoji?)` — local-only UI overrides keyed by `serverId`. Never synced.
 
 **Network**:
 
-- `OcsEnvelope<T>` unwrapped by a converter or suspend extension.
+- `OcsEnvelope<T>` with a Retrofit-friendly shape that exposes `.ocs.data`.
 - `OcsHeadersInterceptor` adds `OCS-APIRequest: true` and `Accept: application/json`.
-- `BasicAuthInterceptor` reads creds from encrypted prefs; emits `Flow<AuthState>` so 401 flips the app to re-auth.
-- `TickbuddyApi`: `getTracks`, `getTicks(from,to)`, `toggleTick`, `setTick`. Track CRUD wired but unused in v1.
+- `BasicAuthInterceptor` rewrites the host with the user's stored Nextcloud origin and adds the Basic auth header. On `401` it calls `AuthRepository.signOut()`.
+- `TickbuddyApi`: `getTracks`, `getTicks(from,to)`, `toggleTick(trackId, date)`, `setTick(trackId, date, value)`. Track CRUD is intentionally not wired in v1.
 
 **Repository**:
 
-- `observeTracks(): Flow<List<Track>>`
-- `observeTicksInRange(from, to): Flow<Map<Pair<TrackId, LocalDate>, Tick>>`
-- `toggleBoolean(trackId, date)` and `setCounter(trackId, date, value)` — write to Room (`dirty=1`) and enqueue sync.
+- `TrackRepository.observeTracks(): Flow<List<Track>>`
+- `TickRepository.observeRange(from, to): Flow<Map<TickKey, Tick>>`
+- `TickRepository.toggleBoolean(trackLocalId, date)` and `adjustCounter(trackLocalId, date, delta)` — wrap reads + writes in `db.withTransaction`, mark `dirty=1`, and enqueue a one-shot push. Pending-removal rows persist with `deleted=true` so the worker still sees them.
+- `TrackPrefsRepository.observeAll(): Flow<Map<Long, TrackPrefs>>`, plus `setColorKey`/`setEmoji`/`reset`. Auto-deletes the row when both fields end up null.
 
 ## Sync layer
 
-Implements `mobile_instructions.md` §4:
+Implements `mobile_instructions.md` §4 with a few concrete tweaks captured below.
 
-- **Pull**: `GET /api/tracks` + `GET /api/ticks?from&to` for the visible window. Reconcile by `server_id`, name fallback for un-synced rows. Server-authoritative when local isn't dirty; otherwise push wins.
-- **Push order**: track creates → updates → deletes → tick changes.
-- **Boolean replay safety**: queue **desired end state**; before push, fetch current server state and only call `/toggle` if it differs.
-- **Counter**: idempotent `set`, always safe to replay.
-- **Triggers**: `OneTimeWorkRequest` after every local write (`NetworkType.CONNECTED`, exponential backoff), `PeriodicWorkRequest` every 15 min while authenticated, pull-to-refresh in journal.
-- **401**: stop worker, clear in-memory auth, route UI to re-auth.
+- **Pull** (`SyncManager.pull(from, to)`): `GET /api/tracks` + `GET /api/ticks?from&to`, then reconcile inside `db.withTransaction`. Server-authoritative when local rows aren't `dirty`. Triggered on `JournalViewModel.refresh()` (which fires on `init` and `Lifecycle.Event.ON_RESUME`) and on pull-to-refresh.
+- **Push** (`PushWorker` + `SyncScheduler`):
+  - **Counter**: `POST /api/ticks/set value=X` (X=0 deletes server-side). Idempotent.
+  - **Boolean**: fetches one-day server state for `(trackId, date)` and only `POST /toggle` if it differs from the desired local state. This is the spec's replay-safety pattern.
+  - On `401`: signs out and `Result.failure()` (no retry). On `5xx`/IO: `Result.retry()` with exponential backoff. Worker constraint: `NetworkType.CONNECTED`.
+- **Push/pull mutex**: `SyncManager.mutex` is held by `pull()` (around network + reconcile) and by `PushWorker.drain()` via `SyncManager.runExclusive`. Prevents the snapshot-then-stomp race where a concurrent pull would drop a row that a push had just cleared.
+- **Triggers**:
+  - One-shot `OneTimeWorkRequest` after every local write — `ExistingWorkPolicy.APPEND_OR_REPLACE` so a burst of taps coalesces a follow-up instead of cancelling the running drain.
+  - Periodic `PeriodicWorkRequest` every 15 min while signed in.
+- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + wipe Room.
+- **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`. The journal top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` ("Sync error" + `CloudOff` icon, `errorContainer` colors) when either status is `Error`.
 
 ## UI / UX (Material You)
 
-### Auth / onboarding
-- Server URL field (validate `https://`, strip trailing slash, allow `http://` only with explicit toggle).
-- Login + app password fields with help text on creating an app password in Nextcloud.
-- "Test connection" → `GET /api/tracks` validation round-trip.
-- Login Flow v2 placeholder seam in `AuthRepository`.
+### Theme
+- `dynamicLightColorScheme` / `dynamicDarkColorScheme` with fallback palette.
+- `TickdroidTheme` is wired inside `TickdroidApp` and reads `RootViewModel.themeMode`. Choices: System / Light / Dark.
+- Edge-to-edge in `MainActivity`.
+
+### Auth / onboarding (`AuthScreen`)
+- Top bar: "Connect with Tickbuddy" + a `HelpOutline` action that opens a `ModalBottomSheet` with a one-paragraph explainer and labeled blurbs for each field.
+- Fields: "Nextcloud server URL" (validates `https://`, strips trailing slash), "User", "App password" (with eye toggle).
+- Connect button runs `AuthProber.probe`, which round-trips through server-up → 401-style auth check → tickbuddy app installed. The error message reflects which stage failed.
 
 ### Journal (main screen)
-Modern reinterpretation of Tickmate's grid:
+Modern reinterpretation of Tickmate's grid.
 
-- **Top app bar**: title, sync status indicator (idle/syncing/offline/error), overflow (Settings, Show private, Sign out).
-- **Sticky header row**: track icons/names as columns. Horizontal scroll if many tracks; today's column emphasized.
-- **Body**: vertical `LazyColumn` of day rows, newest at top, infinite scroll backwards in 30-day chunks. Each row has a day label cell (DOW + date; "today"/"yesterday"; weekend tinted) and one cell per track — filled tonal button (boolean) or counter pill (short press +1, long press -1). Optimistic UI, ripple, haptics.
-- **Dynamic color**: ticked = `primary`/`primaryContainer`, untouched = `surfaceContainer`, counters use `tertiaryContainer`.
-- **Pull-to-refresh** triggers explicit pull.
-- No FAB in v1 (track management is v2).
+- **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`. Actions: `SyncErrorChip` (when relevant) → `SyncIndicator` (spinner during pull) → overflow menu (Account / App settings / Tracks settings).
+- **Sticky header row**: track headers as columns, horizontally scrollable. Track label is the per-track emoji (rendered desaturated, `titleLarge`) when set, otherwise the 2-letter abbreviation.
+- **Body**: vertical `LazyColumn` of day rows, newest at top. Day-label width 92dp, single-line. Subtitle uses `android.text.format.DateFormat.getDateFormat(context)` so it follows the user's Settings → System → Date format. Weekend rows tinted with `surfaceContainerLow`; weekend detection uses `android.icu.util.Calendar.isWeekend` (locale-aware).
+- **Cells**:
+  - Cell width derived from `GridDensity` (Low=5 / Medium=7 / High=9 visible) with a half-cell peek when there are more tracks than fit, plus a 16dp right inset. Cell size clamped to [28, 64] dp.
+  - Cell tint: custom `TrackColor.container` if the user assigned one; otherwise type-based (`primaryContainer` for boolean, `tertiaryContainer` for counter); empty cells use `surfaceContainerHighest`.
+  - On-color: from `TrackColor.onContainer` (luminance-aware) or M3 `onXContainer`.
+  - Filled boolean cells render `Icons.Filled.Check`. Filled counter cells render the value with `tnum`.
+  - Editable empty cells render a faint affordance: `Icons.Filled.Add` (counter) or a bold interpunct `·` (boolean), both at ~50% cell size and 35% alpha.
+- **Tap UX**: `combinedClickable` only on editable days (per `EditableDays` policy). Boolean → tap toggles; counter → tap +1, long-press −1 (no-op at 0). Light haptic on each. Tapping a locked cell pops a Toast: *"This day is locked. Select editable days in App settings."*.
+- **Pull-to-refresh** triggers `JournalViewModel.refresh()` (which also recomputes `today` for midnight rollover). Empty-state screens (loading / no tracks / all private) are `Modifier.verticalScroll`'d so PTR still works.
+- **Infinite scroll**: a derived `nearBottom` flag in `JournalGrid` calls `loadOlder()` which extends `_oldestVisible` by 30 days and pulls just the new chunk.
 
 ### Settings
-Account info, sign out, "Show private tracks" toggle, theme (system/light/dark), about.
+Three top-level entries from the journal overflow menu:
 
-### Material You specifics
-- `dynamicLightColorScheme` / `dynamicDarkColorScheme` with fallback palette.
-- Edge-to-edge.
-- Tabular figures for counter cells.
-- Predictive back, large fonts, TalkBack descriptions on tick cells ("Meditate, Saturday April 25, ticked").
+- **Account** (`AccountSettingsScreen`): server URL, username (read-only), Log out (tonal error button).
+- **App settings** (`AppSettingsScreen`):
+  - Show private tracks (switch).
+  - Editable days (segmented: Today / +1 day / 1 week / All).
+  - Grid density (segmented: Low / Medium / High).
+  - Theme (segmented: System / Light / Dark).
+- **Tracks settings** (`TracksSettingsScreen`): list of all tracks (visible + private) with a 40dp circle badge (custom color or type color; emoji desaturated or abbreviation) and the track name. Tapping opens `TrackDetailScreen`:
+  - 56dp preview badge + description ("Counter" or "Yes/No" · "Private").
+  - Color picker: horizontal `LazyRow` of M3-styled swatches plus a "Default" chip.
+  - Icon: `OutlinedTextField` capped to one grapheme cluster (`BreakIterator`). Empty clears the override.
+  - "Reset to defaults" outlined button.
+  - Edits write through immediately. Disabled if the track has no `serverId`.
+
+### Accessibility
+- `minSdk 31` → predictive back works out of the box.
+- TalkBack content descriptions on tick cells **not yet implemented** — see "Tech debt".
+- Tap targets shrink to ~28dp at high density, below the 48dp Material guideline — see "Tech debt".
+
+## App icon
+- Adaptive icon only (no legacy density mipmaps). Foreground vector renders the Nextcloud logo (white circle + checkmark) inside the 72dp safe zone of the 108dp canvas; background is solid `#0082C9`. Foreground also serves as the Android 13+ themed-icon monochrome layer.
 
 ## Phased implementation
 
-**Phase 0 — Foundations**
-1. Add Hilt, Room, Retrofit/OkHttp/kotlinx.serialization, WorkManager, Navigation, security-crypto to `libs.versions.toml`.
-2. `Application` class with Hilt; edge-to-edge in `MainActivity`.
-3. Confirm dynamic-color setup in `Theme.kt`.
+**Phase 0 — Foundations** ✅
+1. Hilt, Room, Retrofit/OkHttp/kotlinx.serialization, WorkManager, Navigation, security-crypto in `libs.versions.toml`.
+2. `Application` class with Hilt + edge-to-edge in `MainActivity`.
+3. Dynamic color set up in `Theme.kt`.
 
-**Phase 1 — Auth**
-4. `EncryptedCredentialStore` + `AuthRepository`.
+**Phase 1 — Auth** ✅
+4. `EncryptedCredentialStore` + `AuthRepository` + `AuthState`.
 5. Retrofit + `OcsHeadersInterceptor` + `BasicAuthInterceptor` + OCS envelope unwrapping.
-6. `TickbuddyApi.getTracks()` validation round-trip.
-7. Auth screen + nav: boot into auth if no creds, otherwise into Journal.
+6. `AuthProber` round-trips for server-up + auth + Tickbuddy-installed.
+7. Auth screen + nav: boots into auth if no creds, otherwise into Journal.
 
-**Phase 2 — Read-only journal**
+**Phase 2 — Read-only journal** ✅
 8. Room entities + DAOs.
-9. Repositories exposing Flows from Room.
-10. `SyncManager.pull()` for tracks + visible date window; called on app open + pull-to-refresh.
-11. Journal screen rendering the grid from Room (read-only). Verify against a real Tickbuddy instance.
+9. Repositories exposing Flows.
+10. `SyncManager.pull()`.
+11. Journal screen rendering the grid (read-only).
 
-**Phase 3 — Writes + offline**
-12. Optimistic local writes (`toggle`, `set`) marking rows dirty.
-13. `PushWorker` with desired-end-state replay safety for booleans.
-14. Periodic + on-write WorkManager triggers; `401` re-auth handling.
-15. Conflict reconciliation on pull.
+**Phase 3 — Writes + offline** ✅
+12. `TickRepository.toggleBoolean` / `adjustCounter` (transactional, dirty-bit, push-on-write).
+13. `PushWorker` with desired-end-state replay safety for booleans, idempotent set for counters; pull/push share `SyncManager.mutex`.
+14. Periodic + on-write WorkManager triggers; `401` re-auth; sign-out wipes Room.
+15. Conflict reconciliation on pull (server overwrites unless local is dirty).
 
-**Phase 4 — Polish**
-16. Infinite scroll older history (30-day windows) + range-aware pulls.
-17. Sync status indicator + error snackbars.
-18. Settings screen.
-19. Accessibility + landscape/tablet pass.
+**Phase 4 — Polish** (in progress)
+16. ✅ Infinite scroll older history (30-day windows) + range-aware pulls.
+17. ✅ Sync status indicator + error chip in top bar.
+18. ✅ Settings screens (Account / App / Tracks + per-track editor).
+19. ✅ Per-track customization (color from a 10-swatch palette, emoji rendered desaturated).
+20. ✅ Editable-days policy + locked-cell Toast.
+21. ✅ Theme picker (system/light/dark).
+22. ✅ App icon (Nextcloud logo).
+23. ☐ Localization (extract strings to `strings.xml`).
+24. ☐ TalkBack content descriptions on tick cells.
+25. ☐ Landscape / tablet pass.
 
-**Phase 5 — Testing**
-20. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
-21. MockWebServer integration tests against captured OCS fixtures.
-22. Compose UI tests for Journal interactions.
+**Phase 5 — Testing** ☐
+26. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
+27. MockWebServer integration tests against captured OCS fixtures.
+28. Compose UI tests for Journal interactions.
+
+## Tech debt / known limitations
+
+Tracked from a code audit at the end of Phase 3. Items marked ✅ have been addressed; the rest are open.
+
+1. ✅ Race-free local writes: `TickRepository` wraps read-modify-write in `db.withTransaction`.
+2. ✅ Work scheduling: `OneTimeWorkRequest` uses `APPEND_OR_REPLACE` so a tap stream doesn't cancel the running drain.
+3. ✅ Pull/push serialization via `SyncManager.mutex`.
+4. ☐ **Periodic work pushes but never pulls.** Server-side changes from another device only land on manual refresh / app resume. Either schedule a periodic pull or have `PushWorker` issue a pull at the end.
+5. ✅ Midnight rollover: `JournalViewModel` recomputes `today` on every `refresh()`, and `JournalScreen` calls `refresh()` from `LifecycleEventEffect(ON_RESUME)`.
+6. ✅ Push errors visible: `PushStatus` flow + top-bar `SyncErrorChip`.
+7. ☐ **Tap targets <48dp at high density.** Bump `MinCellSize`, or expand the click area beyond the visible cell.
+8. ☐ **Schema migration is `fallbackToDestructiveMigration`.** Replace with real `Migration` objects starting at v2→v3 before the first public release.
+9. ☐ **`UiPreferences` is not user-scoped.** Sign-out wipes Room but not app prefs (theme, density, editable-days, show-private). Acceptable for personal-device use; consider scoping by `(serverUrl, login)` if multi-user becomes a goal.
+10. ☐ **Inert columns:** `TickEntity.updatedAtLocal` and `TrackEntity.dirty/deleted` are unused (no track CRUD in v1). Either drop them in the next migration or document that any future PushWorker change must guard against pushing tracks.
+11. ☐ **Orphan `TrackPrefs` rows.** When a server track is deleted, its prefs row remains. Trivial fix in `SyncManager.reconcileTracks` — intersect with current `serverId`s.
+12. ☐ **No tests.** Phase 5. The sync-conflict matrix is the highest-leverage starting point.
+13. ☐ **Hardcoded strings everywhere.** No `strings.xml`, no localization.
+14. ☐ **No TalkBack `contentDescription` on tick cells.** Original plan called for `"Meditate, Sat April 25, ticked"` — never landed.
+15. ☐ **`security-crypto` is alpha.** AndroidX is replacing it. Monitor and migrate when a stable replacement lands.

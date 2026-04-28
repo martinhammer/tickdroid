@@ -1,7 +1,9 @@
 package com.martinhammer.tickdroid.data.repository
 
+import androidx.room.withTransaction
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickEntity
+import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.sync.SyncScheduler
 import com.martinhammer.tickdroid.domain.Tick
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +15,7 @@ import javax.inject.Singleton
 @Singleton
 class TickRepository @Inject constructor(
     private val tickDao: TickDao,
+    private val database: TickdroidDatabase,
     private val syncScheduler: SyncScheduler,
 ) {
     fun observeRange(from: LocalDate, to: LocalDate): Flow<Map<TickKey, Tick>> =
@@ -29,34 +32,36 @@ class TickRepository @Inject constructor(
      */
     suspend fun toggleBoolean(trackLocalId: Long, date: LocalDate) {
         val key = date.toString()
-        val existing = tickDao.find(trackLocalId, key)
-        when {
-            existing == null -> {
-                tickDao.upsert(
-                    TickEntity(
-                        serverId = null,
-                        trackLocalId = trackLocalId,
-                        date = key,
-                        value = 1,
-                        dirty = true,
+        database.withTransaction {
+            val existing = tickDao.find(trackLocalId, key)
+            when {
+                existing == null -> {
+                    tickDao.upsert(
+                        TickEntity(
+                            serverId = null,
+                            trackLocalId = trackLocalId,
+                            date = key,
+                            value = 1,
+                            dirty = true,
+                        )
                     )
-                )
-            }
-            existing.deleted -> {
-                // Pending-removal row — undo the removal, push the "on" state.
-                tickDao.update(
-                    existing.copy(value = 1, deleted = false, dirty = true)
-                )
-            }
-            existing.serverId == null -> {
-                // Was a local-only insert that hasn't synced yet; just drop it.
-                tickDao.deleteById(existing.localId)
-            }
-            else -> {
-                // Synced "on" row → mark for removal.
-                tickDao.update(
-                    existing.copy(value = 0, deleted = true, dirty = true)
-                )
+                }
+                existing.deleted -> {
+                    // Pending-removal row — undo the removal, push the "on" state.
+                    tickDao.update(
+                        existing.copy(value = 1, deleted = false, dirty = true)
+                    )
+                }
+                existing.serverId == null -> {
+                    // Was a local-only insert that hasn't synced yet; just drop it.
+                    tickDao.deleteById(existing.localId)
+                }
+                else -> {
+                    // Synced "on" row → mark for removal.
+                    tickDao.update(
+                        existing.copy(value = 0, deleted = true, dirty = true)
+                    )
+                }
             }
         }
         syncScheduler.schedulePushNow()
@@ -68,33 +73,36 @@ class TickRepository @Inject constructor(
      */
     suspend fun adjustCounter(trackLocalId: Long, date: LocalDate, delta: Int) {
         val key = date.toString()
-        val existing = tickDao.find(trackLocalId, key)
-        val current = if (existing == null || existing.deleted) 0 else existing.value
-        val next = (current + delta).coerceAtLeast(0)
-        if (next == current && existing?.dirty != true) return
+        val changed = database.withTransaction {
+            val existing = tickDao.find(trackLocalId, key)
+            val current = if (existing == null || existing.deleted) 0 else existing.value
+            val next = (current + delta).coerceAtLeast(0)
+            if (next == current && existing?.dirty != true) return@withTransaction false
 
-        when {
-            next > 0 && existing == null -> {
-                tickDao.upsert(
-                    TickEntity(
-                        serverId = null,
-                        trackLocalId = trackLocalId,
-                        date = key,
-                        value = next,
-                        dirty = true,
+            when {
+                next > 0 && existing == null -> {
+                    tickDao.upsert(
+                        TickEntity(
+                            serverId = null,
+                            trackLocalId = trackLocalId,
+                            date = key,
+                            value = next,
+                            dirty = true,
+                        )
                     )
-                )
+                }
+                next > 0 -> {
+                    tickDao.update(
+                        existing!!.copy(value = next, deleted = false, dirty = true)
+                    )
+                }
+                existing == null -> return@withTransaction false
+                existing.serverId == null -> tickDao.deleteById(existing.localId)
+                else -> tickDao.update(existing.copy(value = 0, deleted = true, dirty = true))
             }
-            next > 0 -> {
-                tickDao.update(
-                    existing!!.copy(value = next, deleted = false, dirty = true)
-                )
-            }
-            existing == null -> return // nothing to do
-            existing.serverId == null -> tickDao.deleteById(existing.localId)
-            else -> tickDao.update(existing.copy(value = 0, deleted = true, dirty = true))
+            true
         }
-        syncScheduler.schedulePushNow()
+        if (changed) syncScheduler.schedulePushNow()
     }
 }
 
