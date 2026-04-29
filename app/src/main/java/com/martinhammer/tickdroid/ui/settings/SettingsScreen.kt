@@ -118,12 +118,6 @@ private fun DensitySelector(current: GridDensity, onSelect: (GridDensity) -> Uni
             text = "Grid density",
             style = MaterialTheme.typography.bodyLarge,
         )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "How many tracks fit on screen at once.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         Spacer(Modifier.height(12.dp))
         val options = GridDensity.values()
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -153,12 +147,6 @@ private fun EditableDaysSelector(current: EditableDays, onSelect: (EditableDays)
         Text(
             text = "Editable days",
             style = MaterialTheme.typography.bodyLarge,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Which past days you can still tick.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
         val options = EditableDays.values()
@@ -190,12 +178,6 @@ private fun ThemeSelector(current: ThemeMode, onSelect: (ThemeMode) -> Unit) {
         Text(
             text = "Theme",
             style = MaterialTheme.typography.bodyLarge,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Choose how Tickdroid should look.",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(12.dp))
         val options = ThemeMode.values()

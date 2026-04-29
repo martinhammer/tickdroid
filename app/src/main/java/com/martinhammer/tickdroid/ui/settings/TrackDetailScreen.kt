@@ -130,7 +130,7 @@ private fun TrackDetailContent(
             Spacer(Modifier.height(16.dp))
         }
 
-        SectionLabel(label = "Color", subtitle = "Used to tint ticked cells.")
+        SectionLabel(label = "Custom color")
         Spacer(Modifier.height(8.dp))
         ColorPicker(
             selected = TrackColor.fromKey(prefs.colorKey),
@@ -140,7 +140,7 @@ private fun TrackDetailContent(
         )
         Spacer(Modifier.height(24.dp))
 
-        SectionLabel(label = "Icon", subtitle = "Use the emoji keyboard. Leave empty for the 2-letter abbreviation.")
+        SectionLabel(label = "Icon / Title", subtitle = "Use the emoji keyboard to select an icon or leave empty for the 2-letter abbreviation.")
         Spacer(Modifier.height(8.dp))
         EmojiField(
             current = prefs.emoji,

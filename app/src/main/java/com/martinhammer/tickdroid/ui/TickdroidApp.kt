@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -90,17 +91,21 @@ private fun TickdroidNav(authState: AuthState) {
 
 @Composable
 private fun SyncNavToAuthState(navController: NavHostController, authState: AuthState) {
-    val target = when (authState) {
-        is AuthState.SignedIn -> Routes.JOURNAL
-        AuthState.SignedOut -> Routes.AUTH
-        AuthState.Unknown -> null
-    } ?: return
-
-    val current = navController.currentDestination?.route
-    if (current != null && current != target) {
-        navController.navigate(target) {
-            popUpTo(navController.graph.startDestinationId) { inclusive = true }
-            launchSingleTop = true
+    LaunchedEffect(authState) {
+        val target = when (authState) {
+            is AuthState.SignedIn -> Routes.JOURNAL
+            AuthState.SignedOut -> Routes.AUTH
+            AuthState.Unknown -> return@LaunchedEffect
+        }
+        val current = navController.currentDestination?.route ?: return@LaunchedEffect
+        val onAuthRoute = current == Routes.AUTH
+        val needsSwitch = (target == Routes.AUTH && !onAuthRoute) ||
+            (target == Routes.JOURNAL && onAuthRoute)
+        if (needsSwitch) {
+            navController.navigate(target) {
+                popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                launchSingleTop = true
+            }
         }
     }
 }
