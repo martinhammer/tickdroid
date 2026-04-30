@@ -14,6 +14,7 @@ import com.martinhammer.tickdroid.data.sync.PushStatus
 import com.martinhammer.tickdroid.data.sync.SyncErrorKind
 import com.martinhammer.tickdroid.data.sync.SyncManager
 import com.martinhammer.tickdroid.data.sync.SyncStatus
+import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
@@ -38,7 +39,7 @@ data class DateWindow(val oldestVisible: LocalDate, val today: LocalDate)
 data class JournalUiState(
     val tracks: List<Track> = emptyList(),
     val ticks: Map<TickKey, Tick> = emptyMap(),
-    val window: DateWindow = DateWindow(LocalDate.now().minusDays(29), LocalDate.now()),
+    val window: DateWindow = DateWindow(LocalDate.MIN, LocalDate.MIN),
     val syncStatus: SyncStatus = SyncStatus.Idle,
     val pushStatus: PushStatus = PushStatus.Idle,
     val syncIssue: SyncIssue = SyncIssue.None,
@@ -49,29 +50,6 @@ data class JournalUiState(
     val editableDays: EditableDays = EditableDays.Default,
 )
 
-/** What (if anything) is wrong with sync right now. The chip in the journal top bar reads this. */
-sealed interface SyncIssue {
-    data object None : SyncIssue
-    data class Offline(val hasUnsavedChanges: Boolean) : SyncIssue
-    data class ServerUnreachable(val hasUnsavedChanges: Boolean) : SyncIssue
-    data class ServerError(val hasUnsavedChanges: Boolean) : SyncIssue
-}
-
-private fun computeSyncIssue(
-    isOnline: Boolean,
-    pull: SyncStatus,
-    push: PushStatus,
-    hasUnsaved: Boolean,
-): SyncIssue {
-    if (!isOnline) return SyncIssue.Offline(hasUnsaved)
-    val kind = (pull as? SyncStatus.Error)?.kind ?: (push as? PushStatus.Error)?.kind
-    return when (kind) {
-        null -> SyncIssue.None
-        SyncErrorKind.ServerUnreachable -> SyncIssue.ServerUnreachable(hasUnsaved)
-        SyncErrorKind.ServerError -> SyncIssue.ServerError(hasUnsaved)
-    }
-}
-
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class JournalViewModel @Inject constructor(
@@ -81,9 +59,10 @@ class JournalViewModel @Inject constructor(
     networkMonitor: NetworkMonitor,
     uiPreferences: UiPreferences,
     trackPrefsRepository: TrackPrefsRepository,
+    private val clock: Clock,
 ) : ViewModel() {
 
-    private val initialToday = LocalDate.now()
+    private val initialToday = clock.today()
     private val _today = MutableStateFlow(initialToday)
     private val _oldestVisible = MutableStateFlow(initialToday.minusDays(29))
 
@@ -155,7 +134,7 @@ class JournalViewModel @Inject constructor(
 
     /** Re-checks the wall clock (for midnight rollover) and pulls the visible window. */
     fun refresh() {
-        _today.value = LocalDate.now()
+        _today.value = clock.today()
         val oldest = _oldestVisible.value
         val today = _today.value
         viewModelScope.launch { syncManager.pull(oldest, today) }

@@ -23,6 +23,7 @@ securityCrypto = "1.1.0-alpha06"
 coroutines = "1.9.0"
 turbine = "1.1.0"
 mockwebserver = "4.12.0"
+mockk = "1.13.13"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -79,6 +80,10 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 
 # Test
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+androidx-work-testing = { group = "androidx.work", name = "work-testing", version.ref = "workManager" }
+hilt-android-testing = { group = "com.google.dagger", name = "hilt-android-testing", version.ref = "hilt" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+mockk-android = { group = "io.mockk", name = "mockk-android", version.ref = "mockk" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

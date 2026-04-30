@@ -12,12 +12,12 @@ import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.data.time.Clock
 import androidx.room.withTransaction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import retrofit2.HttpException
 import java.io.IOException
-import java.time.LocalDate
 
 /**
  * Drains every dirty tick row to the server. Boolean ticks use the spec's replay-safe
@@ -37,6 +37,7 @@ class PushWorker @AssistedInject constructor(
     private val trackDao: TrackDao,
     private val authRepository: AuthRepository,
     private val syncManager: SyncManager,
+    private val clock: Clock,
 ) : CoroutineWorker(appContext, params) {
 
     override suspend fun doWork(): Result {
@@ -45,7 +46,7 @@ class PushWorker @AssistedInject constructor(
         // Pull a recent window so periodic work also surfaces server-side changes from other
         // devices, not just our own pushes. The journal's own pull-on-resume / PTR still
         // covers wider history; this is the periodic background refresh.
-        val today = LocalDate.now()
+        val today = clock.today()
         syncManager.pull(today.minusDays(PULL_WINDOW_DAYS), today)
         return drainResult
     }
