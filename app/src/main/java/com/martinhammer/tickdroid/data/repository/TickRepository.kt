@@ -26,6 +26,9 @@ class TickRepository @Inject constructor(
             }
         }
 
+    /** Whether any tick row is currently `dirty=1` and waiting to be pushed. */
+    fun observeHasDirty(): Flow<Boolean> = tickDao.observeHasDirty()
+
     /**
      * Flip a boolean tick's desired state for [date]. Writes to Room with `dirty=1`
      * and queues a push.

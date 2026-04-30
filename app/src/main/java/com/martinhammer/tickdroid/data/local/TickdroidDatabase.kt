@@ -6,7 +6,7 @@ import androidx.room.RoomDatabase
 @Database(
     entities = [TrackEntity::class, TickEntity::class, TrackPrefsEntity::class],
     version = 2,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class TickdroidDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao

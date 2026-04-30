@@ -17,6 +17,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import retrofit2.HttpException
 import java.io.IOException
+import java.time.LocalDate
 
 /**
  * Drains every dirty tick row to the server. Boolean ticks use the spec's replay-safe
@@ -38,7 +39,20 @@ class PushWorker @AssistedInject constructor(
     private val syncManager: SyncManager,
 ) : CoroutineWorker(appContext, params) {
 
-    override suspend fun doWork(): Result = syncManager.runExclusive { drain() }
+    override suspend fun doWork(): Result {
+        val drainResult = syncManager.runExclusive { drain() }
+        if (drainResult !is Result.Success) return drainResult
+        // Pull a recent window so periodic work also surfaces server-side changes from other
+        // devices, not just our own pushes. The journal's own pull-on-resume / PTR still
+        // covers wider history; this is the periodic background refresh.
+        val today = LocalDate.now()
+        syncManager.pull(today.minusDays(PULL_WINDOW_DAYS), today)
+        return drainResult
+    }
+
+    private companion object {
+        const val PULL_WINDOW_DAYS = 30L
+    }
 
     private suspend fun drain(): Result {
         if (authRepository.state.value !is AuthState.SignedIn) {
@@ -59,13 +73,13 @@ class PushWorker @AssistedInject constructor(
             } catch (e: HttpException) {
                 if (e.code() == 401) {
                     authRepository.signOut()
-                    syncManager.reportPushStatus(PushStatus.Error("Session expired"))
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "Session expired"))
                     return Result.failure()
                 }
-                syncManager.reportPushStatus(PushStatus.Error("HTTP ${e.code()}"))
+                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
                 return Result.retry()
             } catch (e: IOException) {
-                syncManager.reportPushStatus(PushStatus.Error(e.message ?: "Network error"))
+                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))
                 return Result.retry()
             }
         }

@@ -42,6 +42,12 @@ android {
     }
 }
 
+ksp {
+    // Room: write the schema JSON for each version into VCS so future migrations can diff
+    // against it and MigrationTestHelper can replay it.
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

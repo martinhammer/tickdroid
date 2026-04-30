@@ -22,7 +22,7 @@ This file captures the current state of the codebase and decisions made along th
 |---|---|
 | DI | Hilt + `androidx.hilt:hilt-work` for `@HiltWorker` |
 | Async | Kotlin Coroutines + Flow |
-| Local DB | Room (currently schema v2; `fallbackToDestructiveMigration` while pre-release) |
+| Local DB | Room (currently schema v2; `exportSchema = true` writes JSON to `app/schemas/`. No destructive fallback — every version bump must ship with a real `Migration`) |
 | HTTP | Retrofit + OkHttp + kotlinx.serialization |
 | Background sync | WorkManager (manifest disables auto-init; Hilt provides config) |
 | Secure storage | EncryptedSharedPreferences (`security-crypto` alpha) for credentials |
@@ -40,6 +40,7 @@ com.martinhammer.tickdroid
 ├── data
 │   ├── auth         // AuthRepository, EncryptedCredentialStore, AuthProber, AuthState
 │   ├── local        // Room entities, DAOs, database (TickdroidDatabase)
+│   ├── network      // NetworkMonitor (ConnectivityManager → Flow<Boolean> isOnline)
 │   ├── prefs        // UiPreferences + enums (GridDensity, ThemeMode, EditableDays)
 │   ├── remote       // TickbuddyApi, OCS envelope, DTOs, OcsHeaders/BasicAuth interceptors, ServerUrl
 │   ├── repository   // TrackRepository, TickRepository, TrackPrefsRepository, mapping
@@ -93,8 +94,9 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
 - **Triggers**:
   - One-shot `OneTimeWorkRequest` after every local write — `ExistingWorkPolicy.APPEND_OR_REPLACE` so a burst of taps coalesces a follow-up instead of cancelling the running drain.
   - Periodic `PeriodicWorkRequest` every 15 min while signed in.
+  - `PushWorker.doWork()` is push-then-pull: drain under the mutex, and on success call `SyncManager.pull(today − 30d, today)` so periodic background work also surfaces changes from other devices.
 - **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + wipe Room + reset `UiPreferences`.
-- **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`. The journal top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` ("Sync error" + `CloudOff` icon, `errorContainer` colors) when either status is `Error`.
+- **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`, both of which carry a `SyncErrorKind` (`ServerUnreachable` / `ServerError`) when in `Error`. `JournalViewModel` combines those with `NetworkMonitor.isOnline` and `TickRepository.observeHasDirty()` into a `SyncIssue` (`Offline` / `ServerUnreachable` / `ServerError` / `None`, each tagged with `hasUnsavedChanges`). The top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` (`errorContainer` colors, `CloudOff` icon) whose label varies: "Offline" / "Server unreachable" / "Sync error", optionally suffixed with ", unsaved changes".
 
 ## UI / UX (Material You)
 
@@ -111,7 +113,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
 ### Journal (main screen)
 Modern reinterpretation of Tickmate's grid.
 
-- **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`; swaps to a small `TopAppBar` when `screenHeightDp < CompactHeightThresholdDp` (landscape phones). Actions: `SyncErrorChip` (when relevant) → `SyncIndicator` (spinner during pull) → `?` help icon (opens a placeholder `ModalBottomSheet`) → overflow menu (Account / App settings / Tracks settings / About).
+- **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`; swaps to a small `TopAppBar` when `screenHeightDp < CompactHeightThresholdDp` (landscape phones). Actions: `SyncIssueChip` (when relevant) → `SyncIndicator` (spinner during pull) → `?` help icon (opens a placeholder `ModalBottomSheet`) → overflow menu (Account / App settings / Tracks settings / About).
 - **Sticky header row**: track headers as columns, horizontally scrollable. Track label is the per-track emoji (rendered desaturated, `titleLarge`) when set, otherwise the 2-letter abbreviation.
 - **Body**: vertical `LazyColumn` of day rows, newest at top. Day-label width 92dp, single-line. Subtitle uses `android.text.format.DateFormat.getDateFormat(context)` so it follows the user's Settings → System → Date format. Weekend rows tinted with `surfaceContainerLow`; weekend detection uses `android.icu.util.Calendar.isWeekend` (locale-aware).
 - **Cells**:
@@ -143,8 +145,8 @@ Four top-level entries from the journal overflow menu:
 
 ### Accessibility
 - `minSdk 31` → predictive back works out of the box.
-- TalkBack content descriptions on tick cells **not yet implemented** — see "Tech debt".
-- Tap targets shrink to ~28dp at high density, below the 48dp Material guideline — see "Tech debt".
+- TalkBack content descriptions on tick cells **not yet implemented** — see "Future considerations". Documented as a limitation for the initial release.
+- Tap targets shrink to ~28dp at high density, below the 48dp Material guideline — see "Future considerations".
 
 ## App icon
 - Adaptive icon only (no legacy density mipmaps). Foreground vector renders the Nextcloud logo (white circle + checkmark) inside the 72dp safe zone of the 108dp canvas; background is solid `#0082C9`. Foreground also serves as the Android 13+ themed-icon monochrome layer.
@@ -182,15 +184,12 @@ Four top-level entries from the journal overflow menu:
 20. ✅ Editable-days policy + locked-cell Toast.
 21. ✅ Theme picker (system/light/dark).
 22. ✅ App icon (Nextcloud logo).
-23. ☐ Localization (extract strings to `strings.xml`).
-24. ☐ TalkBack content descriptions on tick cells.
-25. ✅ Landscape pass (compact-height top bar swap, grid width cap, horizontal display-cutout / nav-bar insets, IME handling, per-control max-width caps).
-26. ☐ Tablet / large-screen pass (WindowSizeClass-driven layouts, two-pane settings, expanded journal density).
+23. ✅ Landscape pass (compact-height top bar swap, grid width cap, horizontal display-cutout / nav-bar insets, IME handling, per-control max-width caps).
 
 **Phase 5 — Testing** ☐
-27. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
-28. MockWebServer integration tests against captured OCS fixtures.
-29. Compose UI tests for Journal interactions.
+24. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
+25. MockWebServer integration tests against captured OCS fixtures.
+26. Compose UI tests for Journal interactions.
 
 ## Tech debt / known limitations
 
@@ -199,15 +198,21 @@ Tracked from a code audit at the end of Phase 3. Items marked ✅ have been addr
 1. ✅ Race-free local writes: `TickRepository` wraps read-modify-write in `db.withTransaction`.
 2. ✅ Work scheduling: `OneTimeWorkRequest` uses `APPEND_OR_REPLACE` so a tap stream doesn't cancel the running drain.
 3. ✅ Pull/push serialization via `SyncManager.mutex`.
-4. ☐ **Periodic work pushes but never pulls.** Server-side changes from another device only land on manual refresh / app resume. Either schedule a periodic pull or have `PushWorker` issue a pull at the end.
+4. ✅ **Periodic work also pulls.** `PushWorker.doWork()` runs the drain under the sync mutex, then (only on success) calls `SyncManager.pull(today − 30d, today)`. So the same 15-minute periodic worker now both pushes dirty rows and refreshes recent history; the journal's pull-on-resume / PTR still covers older windows.
 5. ✅ Midnight rollover: `JournalViewModel` recomputes `today` on every `refresh()`, and `JournalScreen` calls `refresh()` from `LifecycleEventEffect(ON_RESUME)`.
-6. ✅ Push errors visible: `PushStatus` flow + top-bar `SyncErrorChip`.
-7. ☐ **Tap targets <48dp at high density.** Bump `MinCellSize`, or expand the click area beyond the visible cell.
-8. ☐ **Schema migration is `fallbackToDestructiveMigration`.** Replace with real `Migration` objects starting at v2→v3 before the first public release.
-9. ✅ **`UiPreferences` reset on sign-out.** `SyncCoordinator` calls `UiPreferences.clear()` alongside `database.clearAllTables()`, so theme, density, editable-days, and show-private all return to defaults. Still device-wide rather than user-scoped — if multi-account-on-one-device becomes a goal, scope by `(serverUrl, login)`.
-10. ☐ **Inert columns:** `TickEntity.updatedAtLocal` and `TrackEntity.dirty/deleted` are unused (no track CRUD in v1). Either drop them in the next migration or document that any future PushWorker change must guard against pushing tracks.
-11. ☐ **Orphan `TrackPrefs` rows.** When a server track is deleted, its prefs row remains. Trivial fix in `SyncManager.reconcileTracks` — intersect with current `serverId`s.
-12. ☐ **No tests.** Phase 5. The sync-conflict matrix is the highest-leverage starting point.
-13. ☐ **Hardcoded strings everywhere.** No `strings.xml`, no localization.
-14. ☐ **No TalkBack `contentDescription` on tick cells.** Original plan called for `"Meditate, Sat April 25, ticked"` — never landed.
-15. ☐ **`security-crypto` is alpha.** AndroidX is replacing it. Monitor and migrate when a stable replacement lands.
+6. ✅ Push errors visible: `PushStatus` flow + top-bar `SyncIssueChip` (six labels covering offline / server unreachable / server error × dirty-or-not).
+7. ✅ **Destructive fallback removed.** `DatabaseModule` no longer calls `fallbackToDestructiveMigration()`, and `@Database(exportSchema = true)` writes per-version JSON to `app/schemas/` (checked into git). Any future schema bump (v2→v3 etc.) must ship with a `Migration` added via `.addMigrations(...)`, plus a `MigrationTestHelper` test replaying the previous schema. Without one, the app will crash at startup rather than silently wipe user data.
+8. ✅ **`UiPreferences` reset on sign-out.** `SyncCoordinator` calls `UiPreferences.clear()` alongside `database.clearAllTables()`, so theme, density, editable-days, and show-private all return to defaults. Still device-wide rather than user-scoped — if multi-account-on-one-device becomes a goal, scope by `(serverUrl, login)`.
+9. ✅ **Orphan `TrackPrefs` rows swept on pull.** `SyncManager.reconcileTracks` deletes any `track_prefs` row whose `serverId` is no longer in the server's response, alongside the corresponding track deletion. `track_prefs` is local-only so there's nothing to push.
+10. ☐ **No tests.** Phase 5. The sync-conflict matrix is the highest-leverage starting point.
+
+## Future considerations (not on the critical path)
+
+Items consciously deferred. Revisit when product priorities shift or when external factors (e.g. AndroidX replacement landing stable) force a decision.
+
+- **Tap targets <48dp at high density.** `MinCellSize = 28dp` falls below Material's 48dp guideline at the High density setting. Mitigations: bump `MinCellSize`, or expand the click area beyond the visible cell via `Modifier.minimumInteractiveComponentSize` / a transparent padded hitbox. Acceptable for v1 as a power-user trade-off.
+- **Hardcoded strings everywhere.** No `strings.xml`, no localization. Single-locale (English) is fine for v1; revisit if localization becomes a goal.
+- **`security-crypto` is alpha.** AndroidX is replacing it. Monitor and migrate when a stable replacement lands; for now the alpha is the only practical option for `EncryptedSharedPreferences`.
+- **Tablet / large-screen pass.** `WindowSizeClass`-driven layouts, two-pane settings, expanded journal density. Out of scope while the product targets phone-only use; revisit if tablet/foldable usage becomes a goal.
+- **TalkBack `contentDescription` on tick cells.** Custom-drawn cells have no semantics, so a screen reader announces decorative children ("3", "checkmark") with no track / date / state context. Original plan called for `"Meditate, Sat April 25, ticked"`. Documented as a limitation for the initial release; revisit for an accessibility pass.
+- **Inert columns in the schema.** `TickEntity.updatedAtLocal` and `TrackEntity.dirty/deleted` are unused (no track CRUD in v1). Not worth a dedicated migration — fold the cleanup into the next migration that's already touching those tables. Until then, any future `PushWorker` change must guard against pushing tracks (the `dirty/deleted` columns shouldn't be interpreted as intent to push).

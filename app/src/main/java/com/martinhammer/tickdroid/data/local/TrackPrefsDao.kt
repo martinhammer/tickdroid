@@ -12,6 +12,9 @@ interface TrackPrefsDao {
     @Query("SELECT * FROM track_prefs")
     fun observeAll(): Flow<List<TrackPrefsEntity>>
 
+    @Query("SELECT * FROM track_prefs")
+    suspend fun getAll(): List<TrackPrefsEntity>
+
     @Query("SELECT * FROM track_prefs WHERE serverId = :serverId LIMIT 1")
     suspend fun findByServerId(serverId: Long): TrackPrefsEntity?
 

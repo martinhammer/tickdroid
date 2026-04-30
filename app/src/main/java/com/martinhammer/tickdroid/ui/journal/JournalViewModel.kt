@@ -4,12 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
 import com.martinhammer.tickdroid.data.sync.PushStatus
+import com.martinhammer.tickdroid.data.sync.SyncErrorKind
 import com.martinhammer.tickdroid.data.sync.SyncManager
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
@@ -39,6 +41,7 @@ data class JournalUiState(
     val window: DateWindow = DateWindow(LocalDate.now().minusDays(29), LocalDate.now()),
     val syncStatus: SyncStatus = SyncStatus.Idle,
     val pushStatus: PushStatus = PushStatus.Idle,
+    val syncIssue: SyncIssue = SyncIssue.None,
     val density: GridDensity = GridDensity.Default,
     val loaded: Boolean = false,
     val hasHiddenPrivateTracks: Boolean = false,
@@ -46,12 +49,36 @@ data class JournalUiState(
     val editableDays: EditableDays = EditableDays.Default,
 )
 
+/** What (if anything) is wrong with sync right now. The chip in the journal top bar reads this. */
+sealed interface SyncIssue {
+    data object None : SyncIssue
+    data class Offline(val hasUnsavedChanges: Boolean) : SyncIssue
+    data class ServerUnreachable(val hasUnsavedChanges: Boolean) : SyncIssue
+    data class ServerError(val hasUnsavedChanges: Boolean) : SyncIssue
+}
+
+private fun computeSyncIssue(
+    isOnline: Boolean,
+    pull: SyncStatus,
+    push: PushStatus,
+    hasUnsaved: Boolean,
+): SyncIssue {
+    if (!isOnline) return SyncIssue.Offline(hasUnsaved)
+    val kind = (pull as? SyncStatus.Error)?.kind ?: (push as? PushStatus.Error)?.kind
+    return when (kind) {
+        null -> SyncIssue.None
+        SyncErrorKind.ServerUnreachable -> SyncIssue.ServerUnreachable(hasUnsaved)
+        SyncErrorKind.ServerError -> SyncIssue.ServerError(hasUnsaved)
+    }
+}
+
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class JournalViewModel @Inject constructor(
     private val trackRepository: TrackRepository,
     private val tickRepository: TickRepository,
     private val syncManager: SyncManager,
+    networkMonitor: NetworkMonitor,
     uiPreferences: UiPreferences,
     trackPrefsRepository: TrackPrefsRepository,
 ) : ViewModel() {
@@ -81,15 +108,25 @@ class JournalViewModel @Inject constructor(
         uiPreferences.editableDays,
     ) { sp, d, tp, ed -> PrefsBundle(sp, d, tp, ed) }
 
-    private data class SyncStatuses(val pull: SyncStatus, val push: PushStatus)
+    private data class SyncBundle(
+        val pull: SyncStatus,
+        val push: PushStatus,
+        val isOnline: Boolean,
+        val hasUnsaved: Boolean,
+    )
 
-    private val statuses = combine(syncManager.status, syncManager.pushStatus) { p, q -> SyncStatuses(p, q) }
+    private val syncBundle = combine(
+        syncManager.status,
+        syncManager.pushStatus,
+        networkMonitor.isOnline,
+        tickRepository.observeHasDirty(),
+    ) { pull, push, online, dirty -> SyncBundle(pull, push, online, dirty) }
 
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
         ticks,
         windowFlow,
-        statuses,
+        syncBundle,
         prefs,
     ) { tracks, ticks, window, sync, prefsBundle ->
         val visible = if (prefsBundle.showPrivate) tracks else tracks.filterNot { it.private }
@@ -99,6 +136,7 @@ class JournalViewModel @Inject constructor(
             window = window,
             syncStatus = sync.pull,
             pushStatus = sync.push,
+            syncIssue = computeSyncIssue(sync.isOnline, sync.pull, sync.push, sync.hasUnsaved),
             density = prefsBundle.density,
             loaded = true,
             hasHiddenPrivateTracks = !prefsBundle.showPrivate && tracks.any { it.private },

@@ -21,7 +21,6 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TickdroidDatabase =
         Room.databaseBuilder(context, TickdroidDatabase::class.java, "tickdroid.db")
-            .fallbackToDestructiveMigration()
             .build()
 
     @Provides

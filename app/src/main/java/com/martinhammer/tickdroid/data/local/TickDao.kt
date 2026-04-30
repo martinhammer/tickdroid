@@ -33,4 +33,7 @@ interface TickDao {
 
     @Query("SELECT * FROM ticks WHERE dirty = 1")
     suspend fun getDirty(): List<TickEntity>
+
+    @Query("SELECT EXISTS(SELECT 1 FROM ticks WHERE dirty = 1)")
+    fun observeHasDirty(): Flow<Boolean>
 }

@@ -8,6 +8,7 @@ import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
 import com.martinhammer.tickdroid.data.local.TrackEntity
+import com.martinhammer.tickdroid.data.local.TrackPrefsDao
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
@@ -23,16 +24,25 @@ import java.time.LocalDate
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Categorization of sync failures. The UI combines this with the device's online state. */
+enum class SyncErrorKind {
+    /** IOException — the request never completed (DNS, timeout, refused, no network). */
+    ServerUnreachable,
+
+    /** HttpException — the server responded with a non-2xx status. */
+    ServerError,
+}
+
 sealed interface SyncStatus {
     data object Idle : SyncStatus
     data object Syncing : SyncStatus
-    data class Error(val message: String) : SyncStatus
+    data class Error(val kind: SyncErrorKind, val message: String? = null) : SyncStatus
 }
 
 sealed interface PushStatus {
     data object Idle : PushStatus
     data object Pushing : PushStatus
-    data class Error(val message: String) : PushStatus
+    data class Error(val kind: SyncErrorKind, val message: String? = null) : PushStatus
 }
 
 /**
@@ -47,6 +57,7 @@ class SyncManager @Inject constructor(
     private val db: TickdroidDatabase,
     private val trackDao: TrackDao,
     private val tickDao: TickDao,
+    private val trackPrefsDao: TrackPrefsDao,
     private val authRepository: AuthRepository,
 ) {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
@@ -83,9 +94,9 @@ class SyncManager @Inject constructor(
             }
             _status.value = SyncStatus.Idle
         } catch (e: IOException) {
-            _status.value = SyncStatus.Error(e.message ?: "Network error")
+            _status.value = SyncStatus.Error(SyncErrorKind.ServerUnreachable, e.message)
         } catch (e: retrofit2.HttpException) {
-            _status.value = SyncStatus.Error("HTTP ${e.code()}")
+            _status.value = SyncStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}")
         }
     }
 
@@ -123,6 +134,15 @@ class SyncManager @Inject constructor(
             val sid = entity.serverId ?: continue
             if (sid !in remoteIds && !entity.dirty) {
                 trackDao.deleteById(entity.localId)
+            }
+        }
+
+        // Sweep orphan track_prefs rows: any pref keyed on a serverId the server no longer
+        // returns (track was deleted in Tickbuddy) is dead weight. track_prefs is local-only
+        // so there's nothing to push — just delete.
+        for (prefs in trackPrefsDao.getAll()) {
+            if (prefs.serverId !in remoteIds) {
+                trackPrefsDao.deleteByServerId(prefs.serverId)
             }
         }
     }

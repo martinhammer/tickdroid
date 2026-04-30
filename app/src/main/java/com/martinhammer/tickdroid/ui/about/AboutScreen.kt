@@ -104,7 +104,7 @@ fun AboutScreen(onBack: () -> Unit) {
             }
             Spacer(Modifier.height(16.dp))
             Text(
-                text = "Companion Android app for Tickbuddy, a daily habit tracker for Nextcloud.",
+                text = "Tickdroid is a companion app to Tickbuddy, a daily habit tracker for Nextcloud.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(24.dp))

@@ -78,7 +78,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.repository.TickKey
-import com.martinhammer.tickdroid.data.sync.PushStatus
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
@@ -140,7 +139,7 @@ fun JournalScreen(
         topBar = {
             val title: @Composable () -> Unit = { Text("Tickdroid") }
             val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                SyncErrorChip(pull = state.syncStatus, push = state.pushStatus)
+                SyncIssueChip(state.syncIssue)
                 SyncIndicator(state.syncStatus)
                 IconButton(onClick = { showHelp = true }) {
                     Icon(
@@ -573,13 +572,12 @@ private fun SyncIndicator(status: SyncStatus) {
 }
 
 @Composable
-private fun SyncErrorChip(pull: SyncStatus, push: PushStatus) {
-    val hasError = pull is SyncStatus.Error || push is PushStatus.Error
-    if (!hasError) return
+private fun SyncIssueChip(issue: SyncIssue) {
+    val label = issue.toLabel() ?: return
     AssistChip(
         onClick = {},
         enabled = false,
-        label = { Text("Sync error") },
+        label = { Text(label) },
         leadingIcon = {
             Icon(
                 imageVector = Icons.Outlined.CloudOff,
@@ -595,6 +593,16 @@ private fun SyncErrorChip(pull: SyncStatus, push: PushStatus) {
         border = null,
         modifier = Modifier.padding(end = 8.dp),
     )
+}
+
+private fun SyncIssue.toLabel(): String? {
+    val (category, hasUnsaved) = when (this) {
+        SyncIssue.None -> return null
+        is SyncIssue.Offline -> "Offline" to hasUnsavedChanges
+        is SyncIssue.ServerUnreachable -> "Server unreachable" to hasUnsavedChanges
+        is SyncIssue.ServerError -> "Sync error" to hasUnsavedChanges
+    }
+    return if (hasUnsaved) "$category, unsaved changes" else category
 }
 
 @Composable
