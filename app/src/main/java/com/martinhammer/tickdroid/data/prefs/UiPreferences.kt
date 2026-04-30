@@ -54,6 +54,15 @@ class UiPreferences @Inject constructor(
         _editableDays.value = value
     }
 
+    /** Resets all UI preferences to defaults. Called on sign-out. */
+    fun clear() {
+        prefs.edit().clear().apply()
+        _showPrivate.value = false
+        _gridDensity.value = GridDensity.fromName(null)
+        _themeMode.value = ThemeMode.fromName(null)
+        _editableDays.value = EditableDays.fromName(null)
+    }
+
     private companion object {
         const val KEY_SHOW_PRIVATE = "show_private_tracks"
         const val KEY_GRID_DENSITY = "grid_density"

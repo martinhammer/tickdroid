@@ -12,7 +12,7 @@ This file captures the current state of the codebase and decisions made along th
 - **Private tracks**: simple show/hide toggle (App settings → Show private tracks). No PIN/biometric gate.
 - **Counter UX**: short tap +1, long tap −1 (no-op when value is already 0).
 - **Counter conflicts**: silent last-write-wins. The backend has no `/inc` endpoint, so two devices both incrementing on the same day will lose one increment. Acceptable for v1; not surfaced in UI.
-- **Sign-out**: wipes the local Room database (`clearAllTables()`) so the next user on the same device doesn't inherit cached data or queued writes. App-level prefs (`UiPreferences`) are device-wide and **not** wiped — see "Tech debt".
+- **Sign-out**: wipes the local Room database (`clearAllTables()`) **and** resets `UiPreferences` (`clear()`) so the next user on the same device doesn't inherit cached data, queued writes, or UI settings (theme, density, editable-days, show-private).
 - **Editability**: configurable in App settings. Choices: today only / today + previous day / last 7 days / all past days. Future days never editable. Tapping a locked cell shows a Toast.
 - **Out of scope for v1** (deferred): track management (add/edit/delete/reorder), Login Flow v2, import/export, widget, daily reminder, real schema migrations.
 
@@ -92,7 +92,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
 - **Triggers**:
   - One-shot `OneTimeWorkRequest` after every local write — `ExistingWorkPolicy.APPEND_OR_REPLACE` so a burst of taps coalesces a follow-up instead of cancelling the running drain.
   - Periodic `PeriodicWorkRequest` every 15 min while signed in.
-- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + wipe Room.
+- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + wipe Room + reset `UiPreferences`.
 - **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`. The journal top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` ("Sync error" + `CloudOff` icon, `errorContainer` colors) when either status is `Error`.
 
 ## UI / UX (Material You)
@@ -182,12 +182,13 @@ Three top-level entries from the journal overflow menu:
 22. ✅ App icon (Nextcloud logo).
 23. ☐ Localization (extract strings to `strings.xml`).
 24. ☐ TalkBack content descriptions on tick cells.
-25. ☐ Landscape / tablet pass.
+25. ✅ Landscape pass (compact-height top bar swap, grid width cap, horizontal display-cutout / nav-bar insets, IME handling, per-control max-width caps).
+26. ☐ Tablet / large-screen pass (WindowSizeClass-driven layouts, two-pane settings, expanded journal density).
 
 **Phase 5 — Testing** ☐
-26. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
-27. MockWebServer integration tests against captured OCS fixtures.
-28. Compose UI tests for Journal interactions.
+27. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
+28. MockWebServer integration tests against captured OCS fixtures.
+29. Compose UI tests for Journal interactions.
 
 ## Tech debt / known limitations
 
@@ -201,7 +202,7 @@ Tracked from a code audit at the end of Phase 3. Items marked ✅ have been addr
 6. ✅ Push errors visible: `PushStatus` flow + top-bar `SyncErrorChip`.
 7. ☐ **Tap targets <48dp at high density.** Bump `MinCellSize`, or expand the click area beyond the visible cell.
 8. ☐ **Schema migration is `fallbackToDestructiveMigration`.** Replace with real `Migration` objects starting at v2→v3 before the first public release.
-9. ☐ **`UiPreferences` is not user-scoped.** Sign-out wipes Room but not app prefs (theme, density, editable-days, show-private). Acceptable for personal-device use; consider scoping by `(serverUrl, login)` if multi-user becomes a goal.
+9. ✅ **`UiPreferences` reset on sign-out.** `SyncCoordinator` calls `UiPreferences.clear()` alongside `database.clearAllTables()`, so theme, density, editable-days, and show-private all return to defaults. Still device-wide rather than user-scoped — if multi-account-on-one-device becomes a goal, scope by `(serverUrl, login)`.
 10. ☐ **Inert columns:** `TickEntity.updatedAtLocal` and `TrackEntity.dirty/deleted` are unused (no track CRUD in v1). Either drop them in the next migration or document that any future PushWorker change must guard against pushing tracks.
 11. ☐ **Orphan `TrackPrefs` rows.** When a server track is deleted, its prefs row remains. Trivial fix in `SyncManager.reconcileTracks` — intersect with current `serverId`s.
 12. ☐ **No tests.** Phase 5. The sync-conflict matrix is the highest-leverage starting point.

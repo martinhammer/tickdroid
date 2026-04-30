@@ -13,9 +13,10 @@ Some of the key features which already exist:
 * System / light / dark theme setting
 * Setting for grid density, i.e. size of the cells
 * Custom colours and icons for tracks
+* Landscape mode is handled gracefully
 
 Planned features:
-* Further UI enhancements and polish, including landscape mode
+* Further UI enhancements and polish
 * Possibility of localization 
 * Package and publish on F-Droid app store
 * ...and more once these goals are achieved
@@ -33,13 +34,13 @@ Feel free to get in touch and/or submit an issue.
 ### Screenshots
 
 Main screen - light theme, default colours and headings
-![Screenshot of main app screen](screenshots/Main_20260429_01.png)
+<img src="screenshots/Main_20260429_01.png" alt="Screenshot of main app screen" width="50%">
 
 Main screen - dark theme, with emojis as headings and some custom colours
-![Screenshot of main app screen](screenshots/Main_20260429_02.png)
+<img src="screenshots/Main_20260429_02.png" alt="Screenshot of main app screen" width="50%">
 
 App settings screen
-![Screenshot of app settings screen](screenshots/Settings_20260429_01.png)
+<img src="screenshots/Settings_20260430_01.png" alt="Screenshot of app settings screen" width="50%">
 
 Track settings screen - assigning a custom colour and emoji icon
-![Screenshot of track settings screen](screenshots/Settings_20260429_02.png)
+<img src="screenshots/Settings_20260429_02.png" alt="Screenshot of track settings screen" width="50%">

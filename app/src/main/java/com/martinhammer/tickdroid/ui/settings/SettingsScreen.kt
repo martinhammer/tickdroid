@@ -8,11 +8,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -40,6 +48,7 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,7 +78,7 @@ fun AccountSettingsScreen(
                 containerColor = MaterialTheme.colorScheme.errorContainer,
                 contentColor = MaterialTheme.colorScheme.onErrorContainer,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
         ) {
             Text("Log out")
         }
@@ -120,7 +129,7 @@ private fun DensitySelector(current: GridDensity, onSelect: (GridDensity) -> Uni
         )
         Spacer(Modifier.height(12.dp))
         val options = GridDensity.values()
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth()) {
             options.forEachIndexed { index, option ->
                 SegmentedButton(
                     selected = current == option,
@@ -150,7 +159,7 @@ private fun EditableDaysSelector(current: EditableDays, onSelect: (EditableDays)
         )
         Spacer(Modifier.height(12.dp))
         val options = EditableDays.values()
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth()) {
             options.forEachIndexed { index, option ->
                 SegmentedButton(
                     selected = current == option,
@@ -181,7 +190,7 @@ private fun ThemeSelector(current: ThemeMode, onSelect: (ThemeMode) -> Unit) {
         )
         Spacer(Modifier.height(12.dp))
         val options = ThemeMode.values()
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth()) {
             options.forEachIndexed { index, option ->
                 SegmentedButton(
                     selected = current == option,
@@ -239,7 +248,14 @@ fun TracksSettingsScreen(
                 )
             }
             else -> LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .windowInsetsPadding(
+                        WindowInsets.navigationBars
+                            .union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Horizontal)
+                        ),
                 contentPadding = PaddingValues(vertical = 8.dp),
             ) {
                 items(items = state.rows, key = { it.track.localId }) { row ->
@@ -256,6 +272,7 @@ private fun TrackPrefsRow(row: TrackRowState, onClick: () -> Unit) {
     val prefs = row.prefs
     Row(
         modifier = Modifier
+            .widthIn(max = MaxContentWidth)
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 12.dp),
@@ -336,6 +353,11 @@ private fun SettingsScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Horizontal)
+                )
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             content()
@@ -367,6 +389,7 @@ private fun ToggleRow(
 ) {
     Row(
         modifier = Modifier
+            .widthIn(max = MaxContentWidth)
             .fillMaxWidth()
             .clickable { onCheckedChange(!checked) }
             .padding(vertical = 8.dp),

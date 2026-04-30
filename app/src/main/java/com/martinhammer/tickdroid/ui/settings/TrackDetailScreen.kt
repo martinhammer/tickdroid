@@ -10,10 +10,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +59,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.text.font.FontWeight
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
+import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
@@ -76,6 +88,11 @@ fun TrackDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Horizontal)
+                )
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             when {
@@ -117,7 +134,12 @@ private fun TrackDetailContent(
 ) {
     val unsynced = track.serverId == null
 
-    Column {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .imePadding(),
+    ) {
         TrackPreviewHeader(track = track, prefs = prefs)
         Spacer(Modifier.height(24.dp))
 
@@ -152,7 +174,7 @@ private fun TrackDetailContent(
         OutlinedButton(
             onClick = onReset,
             enabled = !unsynced && (prefs.colorKey != null || prefs.emoji != null),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
         ) {
             Text("Reset to defaults")
         }
@@ -216,15 +238,17 @@ private fun PreviewBadge(track: Track, prefs: TrackPrefs) {
 }
 
 @Composable
-private fun SectionLabel(label: String, subtitle: String) {
+private fun SectionLabel(label: String, subtitle: String? = null) {
     Column {
         Text(text = label, style = MaterialTheme.typography.bodyLarge)
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        if (subtitle != null) {
+            Spacer(Modifier.height(2.dp))
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -348,7 +372,7 @@ private fun EmojiField(
             keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Done,
         ),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
     )
 }
 

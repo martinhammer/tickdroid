@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.data.sync
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
+import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,14 +15,15 @@ import javax.inject.Singleton
 /**
  * Reacts to [AuthRepository] state changes:
  *  - On sign-in: schedules the periodic push and kicks a one-shot drain.
- *  - On sign-out: cancels scheduled work and wipes the local database so the next user
- *    doesn't inherit any cached or queued data.
+ *  - On sign-out: cancels scheduled work, wipes the local database, and resets app preferences
+ *    so the next user doesn't inherit any cached data, queued writes, or UI settings.
  */
 @Singleton
 class SyncCoordinator @Inject constructor(
     private val authRepository: AuthRepository,
     private val scheduler: SyncScheduler,
     private val database: TickdroidDatabase,
+    private val uiPreferences: UiPreferences,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var started = false
@@ -41,6 +43,7 @@ class SyncCoordinator @Inject constructor(
                         AuthState.SignedOut -> {
                             scheduler.cancelAll()
                             database.clearAllTables()
+                            uiPreferences.clear()
                         }
                         AuthState.Unknown -> Unit
                     }

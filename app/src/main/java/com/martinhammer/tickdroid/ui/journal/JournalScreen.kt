@@ -9,12 +9,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -40,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -76,6 +84,7 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import java.time.LocalDate
 import java.time.ZoneId
@@ -88,6 +97,11 @@ private val RightPad = 16.dp
 private val MinCellSize = 28.dp
 private val MaxCellSize = 64.dp
 
+// Cap the screen width used for cell sizing so landscape doesn't blow cells out to MaxCellSize
+// (which would erase the half-cell peek and make the density setting a no-op). Beyond this
+// width the grid stays at its portrait-equivalent size and trailing whitespace fills the rest.
+private val GridSizingMaxWidth = 480.dp
+
 /**
  * Cell width sized so that exactly N cells are fully visible plus a half-cell peek,
  * where N is [GridDensity.visibleTracks]. When fewer tracks exist than fit, the row
@@ -96,7 +110,8 @@ private val MaxCellSize = 64.dp
 @Composable
 private fun computeCellSize(density: GridDensity): Dp {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
-    val gridWidth = screenWidth - DayLabelWidth - RightPad
+    val effectiveWidth = if (screenWidth < GridSizingMaxWidth) screenWidth else GridSizingMaxWidth
+    val gridWidth = effectiveWidth - DayLabelWidth - RightPad
     val n = density.visibleTracks
     val raw = (gridWidth - CellGap * n) / (n + 0.5f)
     return raw.coerceIn(MinCellSize, MaxCellSize)
@@ -111,27 +126,34 @@ fun JournalScreen(
     viewModel: JournalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val compactHeight = LocalConfiguration.current.screenHeightDp < CompactHeightThresholdDp
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     // Refresh on resume so today rolls over (and pull catches changes from other devices).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        modifier = if (compactHeight) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(
-                title = { Text("Tickdroid") },
-                actions = {
-                    SyncErrorChip(pull = state.syncStatus, push = state.pushStatus)
-                    SyncIndicator(state.syncStatus)
-                    OverflowMenu(
-                        onOpenAccount = onOpenAccount,
-                        onOpenAppSettings = onOpenAppSettings,
-                        onOpenTracksSettings = onOpenTracksSettings,
-                    )
-                },
-                scrollBehavior = scrollBehavior,
-            )
+            val title: @Composable () -> Unit = { Text("Tickdroid") }
+            val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+                SyncErrorChip(pull = state.syncStatus, push = state.pushStatus)
+                SyncIndicator(state.syncStatus)
+                OverflowMenu(
+                    onOpenAccount = onOpenAccount,
+                    onOpenAppSettings = onOpenAppSettings,
+                    onOpenTracksSettings = onOpenTracksSettings,
+                )
+            }
+            if (compactHeight) {
+                TopAppBar(title = title, actions = actions)
+            } else {
+                LargeTopAppBar(
+                    title = title,
+                    actions = actions,
+                    scrollBehavior = scrollBehavior,
+                )
+            }
         },
     ) { padding ->
         PullToRefreshBox(
@@ -163,6 +185,11 @@ private fun JournalGrid(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Horizontal)
+                )
                 .verticalScroll(rememberScrollState()),
             contentAlignment = Alignment.Center,
         ) {
@@ -247,7 +274,16 @@ private fun TrackHeader(
     cellSize: Dp,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
-        Row(Modifier.fillMaxWidth().padding(end = RightPad)) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(
+                    WindowInsets.navigationBars
+                        .union(WindowInsets.displayCutout)
+                        .only(WindowInsetsSides.Horizontal)
+                )
+                .padding(end = RightPad)
+        ) {
             Spacer(Modifier.width(DayLabelWidth))
             Row(
                 modifier = Modifier.horizontalScroll(gridScroll),
@@ -307,6 +343,11 @@ private fun DayRow(
             .fillMaxWidth()
             .background(rowBg)
             .padding(vertical = CellGap / 2)
+            .windowInsetsPadding(
+                WindowInsets.navigationBars
+                    .union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Horizontal)
+            )
             .padding(end = RightPad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
