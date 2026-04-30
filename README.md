@@ -34,13 +34,17 @@ Feel free to get in touch and/or submit an issue.
 ### Screenshots
 
 Main screen - light theme, default colours and headings
+
 <img src="screenshots/Main_20260429_01.png" alt="Screenshot of main app screen" width="50%">
 
 Main screen - dark theme, with emojis as headings and some custom colours
+
 <img src="screenshots/Main_20260429_02.png" alt="Screenshot of main app screen" width="50%">
 
 App settings screen
+
 <img src="screenshots/Settings_20260430_01.png" alt="Screenshot of app settings screen" width="50%">
 
 Track settings screen - assigning a custom colour and emoji icon
+
 <img src="screenshots/Settings_20260429_02.png" alt="Screenshot of track settings screen" width="50%">
