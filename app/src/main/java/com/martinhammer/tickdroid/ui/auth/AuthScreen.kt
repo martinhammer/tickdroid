@@ -1,6 +1,7 @@
 package com.martinhammer.tickdroid.ui.auth
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,10 +23,13 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,9 +60,13 @@ import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
+fun AuthScreen(
+    onOpenAbout: () -> Unit = {},
+    viewModel: AuthViewModel = hiltViewModel(),
+) {
     val state by viewModel.ui.collectAsStateWithLifecycle()
     var showHelp by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     val compactHeight = LocalConfiguration.current.screenHeightDp < CompactHeightThresholdDp
 
     Scaffold(
@@ -70,6 +78,23 @@ fun AuthScreen(viewModel: AuthViewModel = hiltViewModel()) {
                         imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
                         contentDescription = "Help",
                     )
+                }
+                Box {
+                    IconButton(onClick = { menuExpanded = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                    }
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("About") },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenAbout()
+                            },
+                        )
+                    }
                 }
             }
             if (compactHeight) {

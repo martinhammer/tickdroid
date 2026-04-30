@@ -46,9 +46,10 @@ com.martinhammer.tickdroid
 │   └── sync         // SyncManager (pull), PushWorker, SyncScheduler, SyncCoordinator
 ├── domain           // Track, Tick, TrackType, TrackPrefs, TrackColor
 ├── ui
+│   ├── about        // AboutScreen
 │   ├── auth         // AuthScreen, AuthViewModel (with help bottom sheet)
-│   ├── common       // EmojiRender (desaturatedEmoji modifier)
-│   ├── journal      // JournalScreen, JournalViewModel
+│   ├── common       // EmojiRender (desaturatedEmoji modifier), Dimens (MaxContentWidth, CompactHeightThresholdDp)
+│   ├── journal      // JournalScreen, JournalViewModel (with help bottom sheet)
 │   ├── settings     // AccountSettingsScreen, AppSettingsScreen, TracksSettingsScreen, TrackDetailScreen, SettingsViewModel, TracksSettingsViewModel, TrackDetailViewModel
 │   ├── theme        // Material You / dynamic color
 │   ├── RootViewModel, TickdroidApp (NavHost), Routes
@@ -110,7 +111,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
 ### Journal (main screen)
 Modern reinterpretation of Tickmate's grid.
 
-- **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`. Actions: `SyncErrorChip` (when relevant) → `SyncIndicator` (spinner during pull) → overflow menu (Account / App settings / Tracks settings).
+- **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`; swaps to a small `TopAppBar` when `screenHeightDp < CompactHeightThresholdDp` (landscape phones). Actions: `SyncErrorChip` (when relevant) → `SyncIndicator` (spinner during pull) → `?` help icon (opens a placeholder `ModalBottomSheet`) → overflow menu (Account / App settings / Tracks settings / About).
 - **Sticky header row**: track headers as columns, horizontally scrollable. Track label is the per-track emoji (rendered desaturated, `titleLarge`) when set, otherwise the 2-letter abbreviation.
 - **Body**: vertical `LazyColumn` of day rows, newest at top. Day-label width 92dp, single-line. Subtitle uses `android.text.format.DateFormat.getDateFormat(context)` so it follows the user's Settings → System → Date format. Weekend rows tinted with `surfaceContainerLow`; weekend detection uses `android.icu.util.Calendar.isWeekend` (locale-aware).
 - **Cells**:
@@ -124,7 +125,7 @@ Modern reinterpretation of Tickmate's grid.
 - **Infinite scroll**: a derived `nearBottom` flag in `JournalGrid` calls `loadOlder()` which extends `_oldestVisible` by 30 days and pulls just the new chunk.
 
 ### Settings
-Three top-level entries from the journal overflow menu:
+Four top-level entries from the journal overflow menu:
 
 - **Account** (`AccountSettingsScreen`): server URL, username (read-only), Log out (tonal error button).
 - **App settings** (`AppSettingsScreen`):
@@ -138,6 +139,7 @@ Three top-level entries from the journal overflow menu:
   - Icon: `OutlinedTextField` capped to one grapheme cluster (`BreakIterator`). Empty clears the override.
   - "Reset to defaults" outlined button.
   - Edits write through immediately. Disabled if the track has no `serverId`.
+- **About** (`AboutScreen`, package `ui.about`): app name, version (resolved at runtime via `PackageManager.getPackageInfo`), one-line description, copyright, GPL-3.0 link to `LICENCE` on GitHub, and a "View source on GitHub" outlined button (`Intent.ACTION_VIEW`).
 
 ### Accessibility
 - `minSdk 31` → predictive back works out of the box.

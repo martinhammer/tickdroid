@@ -29,6 +29,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
@@ -123,11 +124,13 @@ fun JournalScreen(
     onOpenAccount: () -> Unit = {},
     onOpenAppSettings: () -> Unit = {},
     onOpenTracksSettings: () -> Unit = {},
+    onOpenAbout: () -> Unit = {},
     viewModel: JournalViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val compactHeight = LocalConfiguration.current.screenHeightDp < CompactHeightThresholdDp
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    var showHelp by remember { mutableStateOf(false) }
 
     // Refresh on resume so today rolls over (and pull catches changes from other devices).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
@@ -139,10 +142,17 @@ fun JournalScreen(
             val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
                 SyncErrorChip(pull = state.syncStatus, push = state.pushStatus)
                 SyncIndicator(state.syncStatus)
+                IconButton(onClick = { showHelp = true }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
+                        contentDescription = "Help",
+                    )
+                }
                 OverflowMenu(
                     onOpenAccount = onOpenAccount,
                     onOpenAppSettings = onOpenAppSettings,
                     onOpenTracksSettings = onOpenTracksSettings,
+                    onOpenAbout = onOpenAbout,
                 )
             }
             if (compactHeight) {
@@ -168,6 +178,49 @@ fun JournalScreen(
                 onLoadOlder = { viewModel.loadOlder() },
                 onToggleBoolean = viewModel::toggleBoolean,
                 onAdjustCounter = viewModel::adjustCounter,
+            )
+        }
+    }
+
+    if (showHelp) {
+        HelpSheet(onDismiss = { showHelp = false })
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HelpSheet(onDismiss: () -> Unit) {
+    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    androidx.compose.material3.ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp),
+        ) {
+            Text("How to use Tickdroid", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Tracks are defined in Tickbuddy on Nextcloud.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Tap a cell to toggle a yes/no track or increment a counter; long-press to decrement a counter cell.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Editable days, show/hide private tracks, and UI options are configured in App settings.",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Custom track colors and heading icons can be configured in Tracks settings.",
+                style = MaterialTheme.typography.bodyMedium,
             )
         }
     }
@@ -549,6 +602,7 @@ private fun OverflowMenu(
     onOpenAccount: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onOpenTracksSettings: () -> Unit,
+    onOpenAbout: () -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -575,6 +629,13 @@ private fun OverflowMenu(
                 onClick = {
                     expanded = false
                     onOpenTracksSettings()
+                },
+            )
+            DropdownMenuItem(
+                text = { Text("About") },
+                onClick = {
+                    expanded = false
+                    onOpenAbout()
                 },
             )
         }
