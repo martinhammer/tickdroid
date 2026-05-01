@@ -1,0 +1,10 @@
+{
+  "ocs": {
+    "meta": {"status": "ok", "statuscode": 200, "message": "OK"},
+    "data": [
+      {"id": 10, "name": "Meditate", "type": "boolean", "sortOrder": 0, "private": false},
+      {"id": 11, "name": "Pages read", "type": "counter", "sortOrder": 1, "private": false},
+      {"id": 12, "name": "Mood", "type": "boolean", "sortOrder": 2, "private": true}
+    ]
+  }
+}

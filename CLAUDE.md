@@ -29,7 +29,7 @@ This file captures the current state of the codebase and decisions made along th
 | App prefs | Plain SharedPreferences via `UiPreferences` |
 | Navigation | Navigation-Compose |
 | Date/time | `java.time` (`LocalDate`); `android.icu.util.Calendar` for locale-aware weekend; `android.text.format.DateFormat` for the user-set date format |
-| Testing | JUnit + Turbine + MockWebServer (no tests written yet — Phase 5) |
+| Testing | JUnit + Turbine + MockWebServer + MockK (JVM unit) · Room/work-testing + Hilt-testing + Compose ui-test-junit4 + espresso-core 3.7.0 (instrumentation) |
 
 `compileSdk = 36`, `minSdk = 31`, `targetSdk = 36`.
 
@@ -44,7 +44,8 @@ com.martinhammer.tickdroid
 │   ├── prefs        // UiPreferences + enums (GridDensity, ThemeMode, EditableDays)
 │   ├── remote       // TickbuddyApi, OCS envelope, DTOs, OcsHeaders/BasicAuth interceptors, ServerUrl
 │   ├── repository   // TrackRepository, TickRepository, TrackPrefsRepository, mapping
-│   └── sync         // SyncManager (pull), PushWorker, SyncScheduler, SyncCoordinator
+│   ├── sync         // SyncManager (pull), PushWorker, SyncScheduler, SyncCoordinator
+│   └── time         // Clock seam (SystemClock production impl, fakeable in tests)
 ├── domain           // Track, Tick, TrackType, TrackPrefs, TrackColor
 ├── ui
 │   ├── about        // AboutScreen
@@ -176,7 +177,7 @@ Four top-level entries from the journal overflow menu:
 14. Periodic + on-write WorkManager triggers; `401` re-auth; sign-out wipes Room.
 15. Conflict reconciliation on pull (server overwrites unless local is dirty).
 
-**Phase 4 — Polish** (in progress)
+**Phase 4 — Polish** ✅
 16. ✅ Infinite scroll older history (30-day windows) + range-aware pulls.
 17. ✅ Sync status indicator + error chip in top bar.
 18. ✅ Settings screens (Account / App / Tracks + per-track editor).
@@ -186,10 +187,22 @@ Four top-level entries from the journal overflow menu:
 22. ✅ App icon (Nextcloud logo).
 23. ✅ Landscape pass (compact-height top bar swap, grid width cap, horizontal display-cutout / nav-bar insets, IME handling, per-control max-width caps).
 
-**Phase 5 — Testing** ☐
-24. Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor.
-25. MockWebServer integration tests against captured OCS fixtures.
-26. Compose UI tests for Journal interactions.
+**Phase 5 — Testing** ✅
+24. ✅ Unit tests for repositories, sync conflict matrix, OCS envelope, auth interceptor (37 JVM tests in `src/test`).
+25. ✅ MockWebServer integration tests against captured OCS fixtures (`src/androidTest/assets/ocs/*.json`).
+26. ✅ Compose UI tests for `TickCell` interactions (tap / long-press / locked-cell). Full-screen `JournalScreen` tests deferred — see "Future considerations".
+
+The full suite is 37 JVM unit tests + 47 instrumentation tests (84 total). Run via `./gradlew :app:testDebugUnitTest` and `./gradlew :app:connectedDebugAndroidTest`.
+
+**Testability seams introduced in Phase 5:**
+- `data/time/Clock` — interface + `SystemClock` impl, bound by `di/TimeModule`. Injected into `JournalViewModel` and `PushWorker` so tests can pin "today". `TrackEntity` / `TickEntity` still default `updatedAtLocal = System.currentTimeMillis()`; if a future test needs deterministic timestamps, repos can pass `clock.nowMillis()` explicitly.
+- `Credentials.basicAuthHeader` switched from `android.util.Base64` to `java.util.Base64` (byte-equivalent, JVM-testable).
+- `SyncScheduler` made `open`, with `WorkManager.getInstance` deferred to a `lazy` so test subclasses can be constructed without WorkManager initialized.
+- `SyncCoordinator.stop()` (`internal`) cancels the observer scope so tests can tear down without dangling `clearAllTables` calls on a closed DB.
+- `SyncIssue` + `computeSyncIssue` + `toLabel` extracted from `JournalScreen.kt` to `ui/journal/SyncIssue.kt` for JVM testability.
+- `TickCell` composable made `internal` so the Compose test can render it directly.
+
+The shared instrumentation rig is `app/src/androidTest/.../sync/SyncTestRig.kt` — wires in-memory Room + MockWebServer + Retrofit/OkHttp + a real `AuthRepository` pre-seeded as signed-in. Reused by `SyncManagerPullTest`, `PushWorkerTest`, `SyncMutexTest`. JSON fixtures live under `app/src/androidTest/assets/ocs/`.
 
 ## Tech debt / known limitations
 
@@ -204,7 +217,7 @@ Tracked from a code audit at the end of Phase 3. Items marked ✅ have been addr
 7. ✅ **Destructive fallback removed.** `DatabaseModule` no longer calls `fallbackToDestructiveMigration()`, and `@Database(exportSchema = true)` writes per-version JSON to `app/schemas/` (checked into git). Any future schema bump (v2→v3 etc.) must ship with a `Migration` added via `.addMigrations(...)`, plus a `MigrationTestHelper` test replaying the previous schema. Without one, the app will crash at startup rather than silently wipe user data.
 8. ✅ **`UiPreferences` reset on sign-out.** `SyncCoordinator` calls `UiPreferences.clear()` alongside `database.clearAllTables()`, so theme, density, editable-days, and show-private all return to defaults. Still device-wide rather than user-scoped — if multi-account-on-one-device becomes a goal, scope by `(serverUrl, login)`.
 9. ✅ **Orphan `TrackPrefs` rows swept on pull.** `SyncManager.reconcileTracks` deletes any `track_prefs` row whose `serverId` is no longer in the server's response, alongside the corresponding track deletion. `track_prefs` is local-only so there's nothing to push.
-10. ☐ **No tests.** Phase 5. The sync-conflict matrix is the highest-leverage starting point.
+10. ✅ **Tests landed in Phase 5.** 37 JVM unit tests + 47 instrumentation tests covering: repositories (transactional writes, dirty-bit lifecycle), sync conflict matrix (pull reconciles, push replay-safety, push/pull mutex, sign-out wipe), OCS envelope + headers + basic-auth interceptor + auth prober, and the journal `TickCell` tap/long-press UX. The Compose UI coverage stops at `TickCell` rather than the full `JournalScreen` — see "Future considerations".
 
 ## Future considerations (not on the critical path)
 
@@ -214,5 +227,7 @@ Items consciously deferred. Revisit when product priorities shift or when extern
 - **Hardcoded strings everywhere.** No `strings.xml`, no localization. Single-locale (English) is fine for v1; revisit if localization becomes a goal.
 - **`security-crypto` is alpha.** AndroidX is replacing it. Monitor and migrate when a stable replacement lands; for now the alpha is the only practical option for `EncryptedSharedPreferences`.
 - **Tablet / large-screen pass.** `WindowSizeClass`-driven layouts, two-pane settings, expanded journal density. Out of scope while the product targets phone-only use; revisit if tablet/foldable usage becomes a goal.
+- **Compose UI tests for the full `JournalScreen`.** Phase 5 covers `TickCell` interactions in isolation, but not the screen-level concerns (pull-to-refresh, sticky header scroll, infinite scroll, sync-issue chip rendering, overflow menu). Full-screen tests would need a Hilt test harness (`HiltTestActivity` + `@HiltAndroidTest`) and a fake `JournalViewModel`; the boilerplate per assertion is high. Add opportunistically when a regression actually bites.
+- **Toast assertions for locked cells.** `TickCellInteractionTest` only verifies that the boolean/counter callbacks don't fire when `editable=false`; it doesn't assert the Toast text. Asserting on `android.widget.Toast` from instrumentation is brittle. If we ever extract a `Toaster` seam (originally planned for Phase 5 but skipped) the assertion becomes trivial.
 - **TalkBack `contentDescription` on tick cells.** Custom-drawn cells have no semantics, so a screen reader announces decorative children ("3", "checkmark") with no track / date / state context. Original plan called for `"Meditate, Sat April 25, ticked"`. Documented as a limitation for the initial release; revisit for an accessibility pass.
 - **Inert columns in the schema.** `TickEntity.updatedAtLocal` and `TrackEntity.dirty/deleted` are unused (no track CRUD in v1). Not worth a dedicated migration — fold the cleanup into the next migration that's already touching those tables. Until then, any future `PushWorker` change must guard against pushing tracks (the `dirty/deleted` columns shouldn't be interpreted as intent to push).

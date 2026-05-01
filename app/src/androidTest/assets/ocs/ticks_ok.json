@@ -1,0 +1,10 @@
+{
+  "ocs": {
+    "meta": {"status": "ok", "statuscode": 200, "message": "OK"},
+    "data": [
+      {"id": 100, "trackId": 10, "date": "2026-04-29", "value": 1},
+      {"id": 101, "trackId": 11, "date": "2026-04-29", "value": 3},
+      {"id": 102, "trackId": 11, "date": "2026-04-30", "value": 7}
+    ]
+  }
+}

@@ -456,7 +456,7 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun TickCell(
+internal fun TickCell(
     track: Track,
     tick: Tick?,
     prefs: TrackPrefs?,
@@ -593,16 +593,6 @@ private fun SyncIssueChip(issue: SyncIssue) {
         border = null,
         modifier = Modifier.padding(end = 8.dp),
     )
-}
-
-private fun SyncIssue.toLabel(): String? {
-    val (category, hasUnsaved) = when (this) {
-        SyncIssue.None -> return null
-        is SyncIssue.Offline -> "Offline" to hasUnsavedChanges
-        is SyncIssue.ServerUnreachable -> "Server unreachable" to hasUnsavedChanges
-        is SyncIssue.ServerError -> "Sync error" to hasUnsavedChanges
-    }
-    return if (hasUnsaved) "$category, unsaved changes" else category
 }
 
 @Composable

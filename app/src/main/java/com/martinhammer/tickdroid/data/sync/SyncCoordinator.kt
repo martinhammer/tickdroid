@@ -28,6 +28,11 @@ class SyncCoordinator @Inject constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var started = false
 
+    /** Test-only: cancel the scope so the coordinator stops observing auth state. */
+    internal fun stop() {
+        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
+    }
+
     fun start() {
         if (started) return
         started = true

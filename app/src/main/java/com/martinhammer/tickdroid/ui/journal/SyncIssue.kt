@@ -12,6 +12,17 @@ sealed interface SyncIssue {
     data class ServerError(val hasUnsavedChanges: Boolean) : SyncIssue
 }
 
+/** Human-readable chip label for the journal top bar, or null when the chip should hide. */
+fun SyncIssue.toLabel(): String? {
+    val (category, hasUnsaved) = when (this) {
+        SyncIssue.None -> return null
+        is SyncIssue.Offline -> "Offline" to hasUnsavedChanges
+        is SyncIssue.ServerUnreachable -> "Server unreachable" to hasUnsavedChanges
+        is SyncIssue.ServerError -> "Sync error" to hasUnsavedChanges
+    }
+    return if (hasUnsaved) "$category, unsaved changes" else category
+}
+
 internal fun computeSyncIssue(
     isOnline: Boolean,
     pull: SyncStatus,

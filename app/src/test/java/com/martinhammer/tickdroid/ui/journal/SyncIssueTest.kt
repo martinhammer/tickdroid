@@ -4,9 +4,24 @@ import com.martinhammer.tickdroid.data.sync.PushStatus
 import com.martinhammer.tickdroid.data.sync.SyncErrorKind
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SyncIssueTest {
+
+    @Test fun `None has no label`() {
+        assertNull(SyncIssue.None.toLabel())
+    }
+
+    @Test fun `chip labels reflect kind and dirty state`() {
+        assertEquals("Offline", SyncIssue.Offline(hasUnsavedChanges = false).toLabel())
+        assertEquals("Offline, unsaved changes", SyncIssue.Offline(hasUnsavedChanges = true).toLabel())
+        assertEquals("Server unreachable", SyncIssue.ServerUnreachable(false).toLabel())
+        assertEquals("Server unreachable, unsaved changes", SyncIssue.ServerUnreachable(true).toLabel())
+        assertEquals("Sync error", SyncIssue.ServerError(false).toLabel())
+        assertEquals("Sync error, unsaved changes", SyncIssue.ServerError(true).toLabel())
+    }
+
 
     @Test fun `offline outranks healthy sync, regardless of dirty`() {
         assertEquals(

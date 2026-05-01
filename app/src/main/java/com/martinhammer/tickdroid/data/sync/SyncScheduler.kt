@@ -19,10 +19,13 @@ import javax.inject.Singleton
  * write; periodic push runs every ~15 minutes while signed in.
  */
 @Singleton
-class SyncScheduler @Inject constructor(
+open class SyncScheduler @Inject constructor(
     @ApplicationContext context: Context,
 ) {
-    private val workManager = WorkManager.getInstance(context)
+    // Lazy so that constructing the scheduler doesn't require WorkManager to be initialized
+    // up front — the production app initializes WorkManager via Configuration.Provider on first
+    // access, and tests that override every scheduling method never trigger this getter.
+    private val workManager by lazy { WorkManager.getInstance(context) }
 
     private val networkConstraint = Constraints.Builder()
         .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -33,7 +36,7 @@ class SyncScheduler @Inject constructor(
      * (so writes made during a drain still get pushed); a pending-but-not-started worker is
      * replaced to coalesce bursts.
      */
-    fun schedulePushNow() {
+    open fun schedulePushNow() {
         val request = OneTimeWorkRequestBuilder<PushWorker>()
             .setConstraints(networkConstraint)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
@@ -42,7 +45,7 @@ class SyncScheduler @Inject constructor(
     }
 
     /** Schedule periodic push (idempotent). Call on sign-in. */
-    fun schedulePeriodicPush() {
+    open fun schedulePeriodicPush() {
         val request = PeriodicWorkRequestBuilder<PushWorker>(15, TimeUnit.MINUTES)
             .setConstraints(networkConstraint)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
@@ -55,7 +58,7 @@ class SyncScheduler @Inject constructor(
     }
 
     /** Cancel everything we own. Call on sign-out. */
-    fun cancelAll() {
+    open fun cancelAll() {
         workManager.cancelUniqueWork(WORK_PUSH_ONCE)
         workManager.cancelUniqueWork(WORK_PUSH_PERIODIC)
     }
