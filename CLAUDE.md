@@ -12,7 +12,7 @@ This file captures the current state of the codebase and decisions made along th
 - **Private tracks**: simple show/hide toggle (App settings → Show private tracks). No PIN/biometric gate.
 - **Counter UX**: short tap +1, long tap −1 (no-op when value is already 0).
 - **Counter conflicts**: silent last-write-wins. The backend has no `/inc` endpoint, so two devices both incrementing on the same day will lose one increment. Acceptable for v1; not surfaced in UI.
-- **Sign-out**: wipes the local Room database (`clearAllTables()`) **and** resets `UiPreferences` (`clear()`) so the next user on the same device doesn't inherit cached data, queued writes, or UI settings (theme, density, editable-days, show-private).
+- **Sign-out**: closes and **deletes** the local Room database file (rather than `clearAllTables()`) and resets `UiPreferences` (`clear()`) so the next user on the same device doesn't inherit cached data, queued writes, or UI settings (theme, density, editable-days, show-private). File deletion is used because `clearAllTables()` opens the DB and runs migrations, which crashes on schema mismatch (e.g. an old install left from a prior schema version) — the wipe path shouldn't depend on the on-disk schema being current.
 - **Editability**: configurable in App settings. Choices: today only / today + previous day / last 7 days / all past days. Future days never editable. Tapping a locked cell shows a Toast.
 - **Out of scope for v1** (deferred): track management (add/edit/delete/reorder), Login Flow v2, import/export, widget, daily reminder, real schema migrations.
 
@@ -96,7 +96,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
   - One-shot `OneTimeWorkRequest` after every local write — `ExistingWorkPolicy.APPEND_OR_REPLACE` so a burst of taps coalesces a follow-up instead of cancelling the running drain.
   - Periodic `PeriodicWorkRequest` every 15 min while signed in.
   - `PushWorker.doWork()` is push-then-pull: drain under the mutex, and on success call `SyncManager.pull(today − 30d, today)` so periodic background work also surfaces changes from other devices.
-- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + wipe Room + reset `UiPreferences`.
+- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + close & delete the Room DB file + reset `UiPreferences`.
 - **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`, both of which carry a `SyncErrorKind` (`ServerUnreachable` / `ServerError`) when in `Error`. `JournalViewModel` combines those with `NetworkMonitor.isOnline` and `TickRepository.observeHasDirty()` into a `SyncIssue` (`Offline` / `ServerUnreachable` / `ServerError` / `None`, each tagged with `hasUnsavedChanges`). The top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` (`errorContainer` colors, `CloudOff` icon) whose label varies: "Offline" / "Server unreachable" / "Sync error", optionally suffixed with ", unsaved changes".
 
 ## UI / UX (Material You)

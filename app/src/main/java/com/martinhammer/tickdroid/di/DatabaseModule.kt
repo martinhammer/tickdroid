@@ -20,7 +20,7 @@ object DatabaseModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TickdroidDatabase =
-        Room.databaseBuilder(context, TickdroidDatabase::class.java, "tickdroid.db")
+        Room.databaseBuilder(context, TickdroidDatabase::class.java, TickdroidDatabase.NAME)
             .build()
 
     @Provides

@@ -15,7 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Test
 
@@ -31,18 +31,22 @@ class SyncCoordinatorTest {
 
     @Before fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
-        db = Room.inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java).build()
+        // Use a file-based DB with the production name so SyncCoordinator's
+        // deleteDatabase call hits the same file we're populating in the test.
+        context.deleteDatabase(TickdroidDatabase.NAME)
+        db = Room.databaseBuilder(context, TickdroidDatabase::class.java, TickdroidDatabase.NAME).build()
         prefs = UiPreferences(context).also { it.clear() }
         store = CredentialStore(context).also { it.clear() }
         auth = AuthRepository(store)
         scheduler = RecordingScheduler(context)
-        coordinator = SyncCoordinator(auth, scheduler, db, prefs)
+        coordinator = SyncCoordinator(context, auth, scheduler, db, prefs)
         coordinator.start()
     }
 
     @After fun tearDown() {
         coordinator.stop()
-        db.close()
+        runCatching { db.close() }
+        context.deleteDatabase(TickdroidDatabase.NAME)
         store.clear()
         prefs.clear()
     }
@@ -78,16 +82,17 @@ class SyncCoordinatorTest {
 
         auth.signOut()
 
-        // Wait for the SignedOut transition's full handler to run: cancelAll → clearAllTables
-        // → prefs.clear all execute sequentially. We watch the last side-effect (prefs reset)
-        // because cancelAll alone fires before clearAllTables/clear and would race the assertions.
+        // Wait for the SignedOut transition's full handler to run: cancelAll → close+delete DB
+        // → prefs.clear all execute sequentially. Watch the last side-effect (prefs reset).
         waitFor {
             scheduler.cancelAllCalls > cancelBaseline &&
                 prefs.gridDensity.value == GridDensity.Default
         }
 
-        assertEquals(0, db.trackDao().getAll().size)
-        assertNull(db.tickDao().find(trackId, "2026-04-30"))
+        assertFalse(
+            "DB file should be deleted after sign-out",
+            context.getDatabasePath(TickdroidDatabase.NAME).exists(),
+        )
         assertEquals(GridDensity.Default, prefs.gridDensity.value)
     }
 

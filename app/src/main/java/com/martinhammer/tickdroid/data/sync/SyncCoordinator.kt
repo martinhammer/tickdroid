@@ -1,9 +1,11 @@
 package com.martinhammer.tickdroid.data.sync
 
+import android.content.Context
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -20,6 +22,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class SyncCoordinator @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository,
     private val scheduler: SyncScheduler,
     private val database: TickdroidDatabase,
@@ -47,7 +50,11 @@ class SyncCoordinator @Inject constructor(
                         }
                         AuthState.SignedOut -> {
                             scheduler.cancelAll()
-                            database.clearAllTables()
+                            // Delete the DB file rather than clearAllTables(): the latter opens
+                            // the DB and runs migrations, which can crash on schema mismatch
+                            // (e.g. an old install left over from a previous schema version).
+                            database.close()
+                            context.deleteDatabase(TickdroidDatabase.NAME)
                             uiPreferences.clear()
                         }
                         AuthState.Unknown -> Unit

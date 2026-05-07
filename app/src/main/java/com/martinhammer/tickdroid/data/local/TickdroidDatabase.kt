@@ -12,4 +12,8 @@ abstract class TickdroidDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
     abstract fun tickDao(): TickDao
     abstract fun trackPrefsDao(): TrackPrefsDao
+
+    companion object {
+        const val NAME = "tickdroid.db"
+    }
 }
