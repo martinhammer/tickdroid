@@ -208,7 +208,7 @@ private fun HelpSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "Tap a cell to toggle a yes/no track or increment a counter; long-press to decrement a counter cell.",
+                "Tap a cell to toggle a yes/no value or increment a counter; long-press to decrement a counter value.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
@@ -469,13 +469,11 @@ internal fun TickCell(
     val customColor = TrackColor.fromKey(prefs?.colorKey)
     val container = when {
         ticked && customColor != null -> customColor.container
-        track.type == TrackType.COUNTER && ticked -> MaterialTheme.colorScheme.tertiaryContainer
         ticked -> MaterialTheme.colorScheme.primaryContainer
         else -> MaterialTheme.colorScheme.surfaceContainerHighest
     }
     val onContainer = when {
         ticked && customColor != null -> customColor.onContainer
-        track.type == TrackType.COUNTER && ticked -> MaterialTheme.colorScheme.onTertiaryContainer
         ticked -> MaterialTheme.colorScheme.onPrimaryContainer
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }

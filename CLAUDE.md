@@ -119,7 +119,7 @@ Modern reinterpretation of Tickmate's grid.
 - **Body**: vertical `LazyColumn` of day rows, newest at top. Day-label width 92dp, single-line. Subtitle uses `android.text.format.DateFormat.getDateFormat(context)` so it follows the user's Settings → System → Date format. Weekend rows tinted with `surfaceContainerLow`; weekend detection uses `android.icu.util.Calendar.isWeekend` (locale-aware).
 - **Cells**:
   - Cell width derived from `GridDensity` (Low=5 / Medium=7 / High=9 visible) with a half-cell peek when there are more tracks than fit, plus a 16dp right inset. Cell size clamped to [28, 64] dp.
-  - Cell tint: custom `TrackColor.container` if the user assigned one; otherwise type-based (`primaryContainer` for boolean, `tertiaryContainer` for counter); empty cells use `surfaceContainerHighest`.
+  - Cell tint: custom `TrackColor.container` if the user assigned one; otherwise `primaryContainer` for ticked cells (uniform across track types — the type is already conveyed by the empty-cell affordance); empty cells use `surfaceContainerHighest`.
   - On-color: from `TrackColor.onContainer` (luminance-aware) or M3 `onXContainer`.
   - Filled boolean cells render `Icons.Filled.Check`. Filled counter cells render the value with `tnum`.
   - Editable empty cells render a faint affordance: `Icons.Filled.Add` (counter) or a bold interpunct `·` (boolean), both at ~50% cell size and 35% alpha.

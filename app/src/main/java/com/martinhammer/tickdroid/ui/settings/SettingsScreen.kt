@@ -49,7 +49,6 @@ import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
-import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import androidx.compose.runtime.Composable
@@ -298,16 +297,8 @@ private fun TrackPrefsRow(row: TrackRowState, onClick: () -> Unit) {
 @Composable
 private fun TrackBadge(track: Track, prefs: TrackPrefs) {
     val customColor = TrackColor.fromKey(prefs.colorKey)
-    val container = customColor?.container ?: if (track.type == TrackType.COUNTER) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.primaryContainer
-    }
-    val onContainer = customColor?.onContainer ?: if (track.type == TrackType.COUNTER) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    }
+    val container = customColor?.container ?: MaterialTheme.colorScheme.primaryContainer
+    val onContainer = customColor?.onContainer ?: MaterialTheme.colorScheme.onPrimaryContainer
     Box(
         modifier = Modifier
             .size(40.dp)

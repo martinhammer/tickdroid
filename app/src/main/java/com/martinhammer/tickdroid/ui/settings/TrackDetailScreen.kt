@@ -157,7 +157,7 @@ private fun TrackDetailContent(
         ColorPicker(
             selected = TrackColor.fromKey(prefs.colorKey),
             enabled = !unsynced,
-            defaultColor = defaultColorForType(track.type),
+            defaultColor = "Default",
             onSelect = { onColorKeyChange(it?.key) },
         )
         Spacer(Modifier.height(24.dp))
@@ -203,16 +203,8 @@ private fun TrackPreviewHeader(track: Track, prefs: TrackPrefs) {
 @Composable
 private fun PreviewBadge(track: Track, prefs: TrackPrefs) {
     val customColor = TrackColor.fromKey(prefs.colorKey)
-    val container = customColor?.container ?: if (track.type == TrackType.COUNTER) {
-        MaterialTheme.colorScheme.tertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.primaryContainer
-    }
-    val onContainer = customColor?.onContainer ?: if (track.type == TrackType.COUNTER) {
-        MaterialTheme.colorScheme.onTertiaryContainer
-    } else {
-        MaterialTheme.colorScheme.onPrimaryContainer
-    }
+    val container = customColor?.container ?: MaterialTheme.colorScheme.primaryContainer
+    val onContainer = customColor?.onContainer ?: MaterialTheme.colorScheme.onPrimaryContainer
     Box(
         modifier = Modifier
             .size(56.dp)
@@ -251,9 +243,6 @@ private fun SectionLabel(label: String, subtitle: String? = null) {
         }
     }
 }
-
-private fun defaultColorForType(type: TrackType): String =
-    if (type == TrackType.COUNTER) "Counter default" else "Yes/No default"
 
 @Composable
 private fun ColorPicker(
