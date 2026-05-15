@@ -65,6 +65,28 @@ class SyncCoordinatorTest {
         assertEquals(baselinePush + 1, scheduler.pushNowCalls)
     }
 
+    @Test fun initialSignedOut_doesNotWipeOrCloseDb() = runTest {
+        // Regression: a fresh install starts with AuthState.SignedOut. The coordinator must NOT
+        // wipe the DB or close the singleton on this initial emission — otherwise the first
+        // sign-in crashes with "connection pool has been closed" the moment Room is touched.
+        // Give the coordinator a moment to process the initial emission.
+        delay(100)
+
+        // Scheduler's cancelAll should not have fired (no real sign-out happened).
+        assertEquals(0, scheduler.cancelAllCalls)
+
+        // Set a pref so we can detect an unwanted clear().
+        prefs.setGridDensity(GridDensity.HIGH)
+
+        // The DB must still be writable — the bug was that the singleton's connection pool
+        // was closed by SyncCoordinator's initial-SignedOut handler.
+        val trackId = db.trackDao().insert(
+            TrackEntity(serverId = 1L, name = "T", type = "boolean", sortOrder = 0, private = false),
+        )
+        assertEquals(GridDensity.HIGH, prefs.gridDensity.value)
+        assert(trackId > 0)
+    }
+
     @Test fun signOut_cancelsWipesAndResetsPrefs() = runTest {
         // Sign in first so the SignedOut emission below is a true transition.
         auth.signIn(Credentials("https://srv.example", "u", "p"))

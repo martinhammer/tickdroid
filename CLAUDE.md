@@ -12,7 +12,7 @@ This file captures the current state of the codebase and decisions made along th
 - **Private tracks**: simple show/hide toggle (App settings → Show private tracks). No PIN/biometric gate.
 - **Counter UX**: short tap +1, long tap −1 (no-op when value is already 0).
 - **Counter conflicts**: silent last-write-wins. The backend has no `/inc` endpoint, so two devices both incrementing on the same day will lose one increment. Acceptable for v1; not surfaced in UI.
-- **Sign-out**: closes and **deletes** the local Room database file (rather than `clearAllTables()`) and resets `UiPreferences` (`clear()`) so the next user on the same device doesn't inherit cached data, queued writes, or UI settings (theme, density, editable-days, show-private). File deletion is used because `clearAllTables()` opens the DB and runs migrations, which crashes on schema mismatch (e.g. an old install left from a prior schema version) — the wipe path shouldn't depend on the on-disk schema being current.
+- **Sign-out**: closes and **deletes** the local Room database file (rather than `clearAllTables()`) and resets `UiPreferences` (`clear()`) so the next user on the same device doesn't inherit cached data, queued writes, or UI settings (theme, density, editable-days, show-private). File deletion is used because `clearAllTables()` opens the DB and runs migrations, which crashes on schema mismatch (e.g. an old install left from a prior schema version) — the wipe path shouldn't depend on the on-disk schema being current. The wipe is gated on a real `SignedIn → SignedOut` transition (`SyncCoordinator` tracks the previous state): the initial `SignedOut` emission on a fresh install has nothing to wipe, and closing the Hilt-singleton DB at that point would permanently break the first sign-in.
 - **Editability**: configurable in App settings. Choices: today only / today + previous day / last 7 days / all past days. Future days never editable. Tapping a locked cell shows a Toast.
 - **Out of scope for v1** (deferred): track management (add/edit/delete/reorder), Login Flow v2, import/export, widget, daily reminder, real schema migrations.
 
@@ -32,6 +32,12 @@ This file captures the current state of the codebase and decisions made along th
 | Testing | JUnit + Turbine + MockWebServer + MockK (JVM unit) · Room/work-testing + Hilt-testing + Compose ui-test-junit4 + espresso-core 3.7.0 (instrumentation) |
 
 `compileSdk = 36`, `minSdk = 31`, `targetSdk = 36`.
+
+## Release build
+
+- `isMinifyEnabled = true` for the `release` build type — R8 strips/shrinks/optimizes. The only custom keep rule in `proguard-rules.pro` is `-dontwarn com.google.errorprone.annotations.**` (Tink ships errorprone annotation references that aren't on the runtime classpath; benign compile-time-only suppression). All other libraries (Retrofit, kotlinx-serialization, Room, Hilt, OkHttp) ship sufficient consumer rules.
+- `android:allowBackup="false"` in the manifest. Auto Backup and device-to-device transfer are both disabled to keep `EncryptedSharedPreferences` credentials (key bound to the device Keystore) from ending up in a backup that can't be restored. Local state is recoverable by re-syncing from Nextcloud; only per-track color/emoji overrides (`track_prefs`) would be lost on reinstall.
+- F-Droid signs from source with their own key. Local release APKs need to be signed (e.g. with the debug keystore via `apksigner`) only for sideload testing.
 
 ## Package layout (single module)
 
@@ -96,7 +102,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
   - One-shot `OneTimeWorkRequest` after every local write — `ExistingWorkPolicy.APPEND_OR_REPLACE` so a burst of taps coalesces a follow-up instead of cancelling the running drain.
   - Periodic `PeriodicWorkRequest` every 15 min while signed in.
   - `PushWorker.doWork()` is push-then-pull: drain under the mutex, and on success call `SyncManager.pull(today − 30d, today)` so periodic background work also surfaces changes from other devices.
-- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out: cancel both + close & delete the Room DB file + reset `UiPreferences`.
+- **Lifecycle**: `SyncCoordinator` (started from `TickdroidApplication.onCreate`) collects `AuthRepository.state`. On sign-in: schedule periodic + kick a one-shot. On sign-out (only when transitioning from `SignedIn`, never on the initial fresh-install `SignedOut`): cancel both + close & delete the Room DB file + reset `UiPreferences`.
 - **Status surfacing**: `SyncManager` exposes `status: StateFlow<SyncStatus>` (pull) and `pushStatus: StateFlow<PushStatus>`, both of which carry a `SyncErrorKind` (`ServerUnreachable` / `ServerError`) when in `Error`. `JournalViewModel` combines those with `NetworkMonitor.isOnline` and `TickRepository.observeHasDirty()` into a `SyncIssue` (`Offline` / `ServerUnreachable` / `ServerError` / `None`, each tagged with `hasUnsavedChanges`). The top bar shows a `CircularProgressIndicator` during pull and a tonal `AssistChip` (`errorContainer` colors, `CloudOff` icon) whose label varies: "Offline" / "Server unreachable" / "Sync error", optionally suffixed with ", unsaved changes".
 
 ## UI / UX (Material You)
@@ -192,7 +198,7 @@ Four top-level entries from the journal overflow menu:
 25. ✅ MockWebServer integration tests against captured OCS fixtures (`src/androidTest/assets/ocs/*.json`).
 26. ✅ Compose UI tests for `TickCell` interactions (tap / long-press / locked-cell). Full-screen `JournalScreen` tests deferred — see "Future considerations".
 
-The full suite is 37 JVM unit tests + 47 instrumentation tests (84 total). Run via `./gradlew :app:testDebugUnitTest` and `./gradlew :app:connectedDebugAndroidTest`.
+The full suite is 37 JVM unit tests + 48 instrumentation tests (85 total). Run via `./gradlew :app:testDebugUnitTest` and `./gradlew :app:connectedDebugAndroidTest`.
 
 **Testability seams introduced in Phase 5:**
 - `data/time/Clock` — interface + `SystemClock` impl, bound by `di/TimeModule`. Injected into `JournalViewModel` and `PushWorker` so tests can pin "today". `TrackEntity` / `TickEntity` still default `updatedAtLocal = System.currentTimeMillis()`; if a future test needs deterministic timestamps, repos can pass `clock.nowMillis()` explicitly.

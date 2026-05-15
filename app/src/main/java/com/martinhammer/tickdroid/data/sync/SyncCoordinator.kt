@@ -40,6 +40,7 @@ class SyncCoordinator @Inject constructor(
         if (started) return
         started = true
         scope.launch {
+            var previous: AuthState? = null
             authRepository.state
                 .distinctUntilChanged { a, b -> a::class == b::class }
                 .collect { state ->
@@ -49,16 +50,22 @@ class SyncCoordinator @Inject constructor(
                             scheduler.schedulePushNow()
                         }
                         AuthState.SignedOut -> {
-                            scheduler.cancelAll()
-                            // Delete the DB file rather than clearAllTables(): the latter opens
-                            // the DB and runs migrations, which can crash on schema mismatch
-                            // (e.g. an old install left over from a previous schema version).
-                            database.close()
-                            context.deleteDatabase(TickdroidDatabase.NAME)
-                            uiPreferences.clear()
+                            // Only wipe on a real SignedIn -> SignedOut transition. The initial
+                            // SignedOut on a fresh install has nothing to wipe, and closing the
+                            // Hilt-singleton DB here would permanently break the next sign-in.
+                            if (previous is AuthState.SignedIn) {
+                                scheduler.cancelAll()
+                                // Delete the DB file rather than clearAllTables(): the latter opens
+                                // the DB and runs migrations, which can crash on schema mismatch
+                                // (e.g. an old install left over from a previous schema version).
+                                database.close()
+                                context.deleteDatabase(TickdroidDatabase.NAME)
+                                uiPreferences.clear()
+                            }
                         }
                         AuthState.Unknown -> Unit
                     }
+                    previous = state
                 }
         }
     }

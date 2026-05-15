@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Tink (transitive via androidx.security:security-crypto) references
+# errorprone annotations that aren't on the runtime classpath.
+-dontwarn com.google.errorprone.annotations.**
