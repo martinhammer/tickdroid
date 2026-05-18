@@ -1,0 +1,5 @@
+Tickdroid is an Android companion app to the Nextcloud application Tickbuddy. Tickbuddy and Tickdroid were inspired by the "one-bit journal" Android app Tickmate. Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
+
+The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+
+The source code can be found on GitHub at https://github.com/martinhammer/tickdroid/. Report bugs, enhancement proposals and feature requests there.

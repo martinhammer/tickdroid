@@ -1,8 +1,10 @@
 # Tickdroid
 
-Tickdroid is an Android companion app to the Nextcloud application [Tickbuddy](https://github.com/martinhammer/tickbuddy). Tickbuddy and Tickdroid were inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/). Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
+Tickdroid is an Android companion app to the Nextcloud application [Tickbuddy](https://github.com/martinhammer/tickbuddy). Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
 
 The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+
+Tickbuddy and Tickdroid were inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
 
 ### Features
 Some of the key features which already exist:
@@ -12,13 +14,13 @@ Some of the key features which already exist:
 * Setting to control editable days
 * System / light / dark theme setting
 * Setting for grid density, i.e. size of the cells
-* Custom colours and icons for tracks
+* Custom colours and emoji icons for tracks
 * Landscape mode is handled gracefully
+
 
 Planned features:
 * Further UI enhancements and polish
 * Possibility of localization 
-* Package and publish on F-Droid app store
 * ...and more once these goals are achieved
 
 ### Motivation

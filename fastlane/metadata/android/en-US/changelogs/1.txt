@@ -1,0 +1,10 @@
+Initial release.
+
+- Connect to a Nextcloud server running the Tickbuddy app
+- Two-way sync of tracks and ticks
+- Indicator for offline / unsaved changes / sync error
+- Daily grid view with infinite scroll back through history
+- Counter and yes/no track types
+- System / light / dark theme, configurable grid density
+- Configurable editable days window
+- Custom colour and emoji per track
