@@ -21,8 +21,25 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            val ksPath = System.getenv("TICKDROID_KEYSTORE")
+            if (ksPath != null) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("TICKDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TICKDROID_KEY_ALIAS") ?: "tickdroid"
+                keyPassword = System.getenv("TICKDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Only attach the signing config when the keystore env var is set, so F-Droid's
+            // unsigned-build flow (which signs with their own key) still works.
+            if (System.getenv("TICKDROID_KEYSTORE") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
