@@ -1,0 +1,1 @@
+Pin gradle wrapper SHA-256 for verified f-droid builds.
