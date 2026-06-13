@@ -42,7 +42,10 @@ class PushWorker @AssistedInject constructor(
 
     override suspend fun doWork(): Result {
         val drainResult = syncManager.runExclusive { drain() }
-        if (drainResult !is Result.Success) return drainResult
+        // Bail (skip the pull) unless drain succeeded. Compare against the Result.success()
+        // factory rather than `is Result.Success`: the Result.Success subclass type is
+        // @RestrictTo(LIBRARY_GROUP), so referencing it fails lint's RestrictedApi check.
+        if (drainResult != Result.success()) return drainResult
         // Pull a recent window so periodic work also surfaces server-side changes from other
         // devices, not just our own pushes. The journal's own pull-on-resume / PTR still
         // covers wider history; this is the periodic background refresh.
