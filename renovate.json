@@ -42,8 +42,9 @@
       "matchPackageNames": ["com.google.dagger:**", "androidx.hilt:**"]
     },
     {
-      "description": "security-crypto is alpha; never auto-open a PR — surface it on the dashboard for manual approval.",
+      "description": "security-crypto is alpha; never auto-open a PR — surface it on the dashboard for manual approval. Own groupName so the approval gate doesn't propagate to the rest of the AndroidX group.",
       "matchPackageNames": ["androidx.security:security-crypto"],
+      "groupName": "security-crypto (alpha)",
       "dependencyDashboardApproval": true
     }
   ]
