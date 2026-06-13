@@ -1,0 +1,50 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "timezone": "Europe/Berlin",
+  "schedule": ["before 6am on monday"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 5,
+  "minimumReleaseAge": "3 days",
+  "packageRules": [
+    {
+      "description": "Kotlin and KSP must move together — KSP is version-locked to the Kotlin compiler.",
+      "groupName": "Kotlin + KSP",
+      "matchDepNames": [
+        "org.jetbrains.kotlin.android",
+        "org.jetbrains.kotlin.plugin.compose",
+        "org.jetbrains.kotlin.plugin.serialization",
+        "com.google.devtools.ksp"
+      ]
+    },
+    {
+      "description": "Android Gradle Plugin on its own — major/minor bumps often need manual review.",
+      "groupName": "Android Gradle Plugin",
+      "matchDepNames": ["com.android.application"]
+    },
+    {
+      "description": "All other AndroidX libraries in one PR.",
+      "groupName": "AndroidX",
+      "matchPackageNames": ["androidx.**"]
+    },
+    {
+      "description": "Jetpack Compose (BOM + artifacts) grouped separately from the rest of AndroidX.",
+      "groupName": "Jetpack Compose",
+      "matchPackageNames": ["androidx.compose**"]
+    },
+    {
+      "description": "Hilt / Dagger compiler and runtime share versions — keep them in one PR.",
+      "groupName": "Hilt / Dagger",
+      "matchPackageNames": ["com.google.dagger:**", "androidx.hilt:**"]
+    },
+    {
+      "description": "security-crypto is alpha; never auto-open a PR — surface it on the dashboard for manual approval.",
+      "matchPackageNames": ["androidx.security:security-crypto"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}
