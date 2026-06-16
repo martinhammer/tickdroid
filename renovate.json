@@ -12,22 +12,35 @@
   "minimumReleaseAge": "3 days",
   "packageRules": [
     {
-      "description": "Kotlin and KSP must move together — KSP is version-locked to the Kotlin compiler.",
-      "groupName": "Kotlin + KSP",
+      "description": "HELD — coordinated toolchain upgrade. Kotlin, KSP and Dagger/Hilt are coupled: KSP is locked to the Kotlin compiler, and Hilt's bundled metadata parser must match the Kotlin metadata version. They can't advance on the current stack — Kotlin 2.3+ forces the KSP2 backend (which crashes this project: KspAAWorkerAction 'unexpected jvm signature V'), and a Kotlin-2.2+-capable Hilt (2.59+) requires AGP 9 + Gradle 9. Gate behind dashboard approval so they never auto-PR; do them together as one upgrade. See CLAUDE.md 'Deferred toolchain upgrade'.",
+      "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
       "matchDepNames": [
         "org.jetbrains.kotlin.android",
         "org.jetbrains.kotlin.plugin.compose",
         "org.jetbrains.kotlin.plugin.serialization",
         "com.google.devtools.ksp"
-      ]
+      ],
+      "dependencyDashboardApproval": true
     },
     {
-      "description": "Android Gradle Plugin on its own — major/minor bumps often need manual review.",
+      "description": "Dagger/Hilt compiler+runtime join the held Kotlin toolchain group above (Hilt 2.59+ requires AGP 9). The androidx.hilt:* wrappers are independent and update with AndroidX.",
+      "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
+      "matchPackageNames": ["com.google.dagger:**"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "Android Gradle Plugin: block the v9 major (requires Gradle 9 and pulls in the held Kotlin/Hilt upgrade); allow 8.x updates.",
       "groupName": "Android Gradle Plugin",
-      "matchDepNames": ["com.android.application"]
+      "matchDepNames": ["com.android.application"],
+      "allowedVersions": "<9.0.0"
     },
     {
-      "description": "All other AndroidX libraries in one PR.",
+      "description": "Gradle wrapper: block the v9 major (coupled to the AGP 9 upgrade); allow 8.x updates, which also refresh distributionSha256Sum.",
+      "matchManagers": ["gradle-wrapper"],
+      "allowedVersions": "<9.0.0"
+    },
+    {
+      "description": "All other AndroidX libraries in one PR (includes the androidx.hilt:* wrappers, which are independent of the Dagger/Hilt compiler).",
       "groupName": "AndroidX",
       "matchPackageNames": ["androidx.**"]
     },
@@ -35,11 +48,6 @@
       "description": "Jetpack Compose (BOM + artifacts) grouped separately from the rest of AndroidX.",
       "groupName": "Jetpack Compose",
       "matchPackageNames": ["androidx.compose**"]
-    },
-    {
-      "description": "Hilt / Dagger compiler and runtime share versions — keep them in one PR.",
-      "groupName": "Hilt / Dagger",
-      "matchPackageNames": ["com.google.dagger:**", "androidx.hilt:**"]
     },
     {
       "description": "security-crypto is alpha; never auto-open a PR — surface it on the dashboard for manual approval. Own groupName so the approval gate doesn't propagate to the rest of the AndroidX group.",
