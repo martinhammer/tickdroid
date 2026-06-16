@@ -12,6 +12,11 @@
   "minimumReleaseAge": "3 days",
   "packageRules": [
     {
+      "description": "Hold every major version bump for manual review — majors carry breaking changes (e.g. OkHttp 5, Retrofit 3, Compose BOM 2026). Surface under Pending Approval and create deliberately; minors/patches keep flowing on schedule.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
       "description": "HELD — coordinated toolchain upgrade. Kotlin, KSP and Dagger/Hilt are coupled: KSP is locked to the Kotlin compiler, and Hilt's bundled metadata parser must match the Kotlin metadata version. They can't advance on the current stack — Kotlin 2.3+ forces the KSP2 backend (which crashes this project: KspAAWorkerAction 'unexpected jvm signature V'), and a Kotlin-2.2+-capable Hilt (2.59+) requires AGP 9 + Gradle 9. Gate behind dashboard approval so they never auto-PR; do them together as one upgrade. See CLAUDE.md 'Deferred toolchain upgrade'.",
       "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
       "matchDepNames": [
