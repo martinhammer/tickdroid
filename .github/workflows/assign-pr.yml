@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+
+name: Assign PR to owner
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assign-pr-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  assign:
+    name: Assign PR to owner
+    runs-on: ubuntu-latest
+
+    permissions:
+      pull-requests: write
+
+    steps:
+      - name: Assign the pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-assignee "$OWNER"
