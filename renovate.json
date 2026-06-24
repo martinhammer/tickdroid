@@ -55,6 +55,11 @@
       "allowedVersions": "<2.11.0"
     },
     {
+      "description": "Room 2.7.0 replaced Gson with kotlinx-serialization for schema-bundle parsing; with exportSchema=true the room-compiler deserializes the schema JSON at KSP time and its generated $$serializer classes need a newer kotlinx-serialization-core than the pinned 1.7.3 (AbstractMethodError on typeParametersSerializers()). Bumping serialization risks forcing Kotlin 2.1+, so hold Room at 2.6.x until the coordinated upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
+      "matchPackageNames": ["androidx.room:**"],
+      "allowedVersions": "<2.7.0"
+    },
+    {
       "description": "All other AndroidX libraries in one PR (includes the androidx.hilt:* wrappers, which are independent of the Dagger/Hilt compiler).",
       "groupName": "AndroidX",
       "matchPackageNames": ["androidx.**"]
