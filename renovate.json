@@ -45,6 +45,16 @@
       "allowedVersions": "<9.0.0"
     },
     {
+      "description": "androidx.core requires AGP 9.1 + compileSdk 37 from 1.19.0 — cap below the v9 wall until the coordinated AGP 9 / Gradle 9 / Kotlin / Hilt upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
+      "matchPackageNames": ["androidx.core:**"],
+      "allowedVersions": "<1.19.0"
+    },
+    {
+      "description": "androidx.lifecycle requires AGP 9.1 + compileSdk 37 from 2.11.0 — cap below the v9 wall until the coordinated AGP 9 / Gradle 9 / Kotlin / Hilt upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
+      "matchPackageNames": ["androidx.lifecycle:**"],
+      "allowedVersions": "<2.11.0"
+    },
+    {
       "description": "All other AndroidX libraries in one PR (includes the androidx.hilt:* wrappers, which are independent of the Dagger/Hilt compiler).",
       "groupName": "AndroidX",
       "matchPackageNames": ["androidx.**"]
