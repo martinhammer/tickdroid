@@ -21,7 +21,7 @@ workManager = "2.11.2"
 navigationCompose = "2.9.8"
 securityCrypto = "1.1.0-alpha06"
 coroutines = "1.9.0"
-turbine = "1.1.0"
+turbine = "1.2.1"
 mockwebserver = "4.12.0"
 mockk = "1.13.13"
 
