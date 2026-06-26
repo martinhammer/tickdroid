@@ -23,12 +23,13 @@
         "org.jetbrains.kotlin.android",
         "org.jetbrains.kotlin.plugin.compose",
         "org.jetbrains.kotlin.plugin.serialization",
-        "com.google.devtools.ksp"
+        "com.google.devtools.ksp",
+        "com.google.dagger.hilt.android"
       ],
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Dagger/Hilt compiler+runtime join the held Kotlin toolchain group above (Hilt 2.59+ requires AGP 9). The androidx.hilt:* wrappers are independent and update with AndroidX.",
+      "description": "Dagger/Hilt compiler+runtime join the held Kotlin toolchain group above (Hilt 2.59+ requires AGP 9). The androidx.hilt:* wrappers are independent and update with AndroidX. NB: the matchDepNames rule above also catches the Hilt Gradle plugin marker `com.google.dagger.hilt.android` — the `com.google.dagger:**` glob here only matches the colon-form artifact coordinates, not the plugin id, which is how the v2.59.2 plugin PR (#14) slipped past the gate.",
       "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
       "matchPackageNames": ["com.google.dagger:**"],
       "dependencyDashboardApproval": true
