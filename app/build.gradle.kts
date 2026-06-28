@@ -68,6 +68,14 @@ android {
     }
 }
 
+configurations.configureEach {
+    // io.opencensus:* is on F-Droid's tracker list. It is pulled in transitively only by
+    // AGP's Unified Test Platform (gRPC's optional census integration) and never ships in
+    // the APK, but it surfaces in the Gradle verification metadata that F-Droid scans and
+    // gets flagged as a tracker. gRPC works fine without it (no-op census).
+    exclude(group = "io.opencensus")
+}
+
 kotlin {
     // Kotlin 2.2 removed the android.kotlinOptions DSL (jvmTarget as String is now an error);
     // configure the compiler via the top-level compilerOptions DSL instead.
