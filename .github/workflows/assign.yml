@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+
+name: Assign to owner
+
+on:
+  issues:
+    types: [opened, reopened]
+  pull_request_target:
+    types: [opened, reopened]
+
+jobs:
+  assign:
+    uses: martinhammer/gh-workflows/.github/workflows/assign-to-owner.yml@v1.0.0
+    permissions:
+      issues: write
+      pull-requests: write
