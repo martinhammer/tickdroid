@@ -2,7 +2,6 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
@@ -11,14 +10,14 @@ plugins {
 
 android {
     namespace = "com.martinhammer.tickdroid"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.martinhammer.tickdroid"
         minSdk = 31
         targetSdk = 36
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -112,6 +111,9 @@ dependencies {
     implementation(libs.hilt.navigation.compose)
     implementation(libs.hilt.work)
     ksp(libs.androidx.hilt.compiler)
+    // Dagger 2.60 generates code annotated with @CanIgnoreReturnValue but doesn't put the
+    // errorprone annotation on the compile classpath; provide it (compile-time only).
+    compileOnly(libs.errorprone.annotations)
 
     // Room
     implementation(libs.androidx.room.runtime)

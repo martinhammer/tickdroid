@@ -12,15 +12,14 @@
   "minimumReleaseAge": "3 days",
   "packageRules": [
     {
-      "description": "Hold every major version bump for manual review — majors carry breaking changes (e.g. OkHttp 5, Retrofit 3, Compose BOM 2026). Surface under Pending Approval and create deliberately; minors/patches keep flowing on schedule.",
+      "description": "Hold every major version bump for manual review — majors carry breaking changes (e.g. a future AGP 10 / Gradle 10, the next Compose BOM major, or another OkHttp/Retrofit major). Surface under Pending Approval and create deliberately; minors/patches keep flowing on schedule.",
       "matchUpdateTypes": ["major"],
       "dependencyDashboardApproval": true
     },
     {
-      "description": "HELD — coordinated toolchain upgrade. Kotlin, KSP and Dagger/Hilt are coupled: KSP is locked to the Kotlin compiler, and Hilt's bundled metadata parser must match the Kotlin metadata version. They can't advance on the current stack — Kotlin 2.3+ forces the KSP2 backend (which crashes this project: KspAAWorkerAction 'unexpected jvm signature V'), and a Kotlin-2.2+-capable Hilt (2.59+) requires AGP 9 + Gradle 9. Gate behind dashboard approval so they never auto-PR; do them together as one upgrade. See CLAUDE.md 'Deferred toolchain upgrade'.",
-      "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
+      "description": "Keep Kotlin, KSP and Dagger/Hilt coordinated. The AGP 9 / Gradle 9 / Kotlin 2.3 / KSP2 wall was crossed in 2026-07 (see CLAUDE.md 'Toolchain upgrade'), but these stay coupled: KSP is version-locked to the Kotlin compiler, AGP 9's built-in Kotlin resolves KGP from these plugin versions, and Hilt's metadata parser must match the Kotlin metadata version — so a Kotlin bump drags KSP and Hilt with it. This axis has repeatedly broken the build, so group them and hold behind dashboard approval: do the next Kotlin/KSP/Hilt bump deliberately as one PR (also mind Room, which is coupled to kotlinx-serialization, and error_prone_annotations, which Dagger's codegen needs on the compile classpath).",
+      "groupName": "Kotlin / KSP / Hilt (coordinated)",
       "matchDepNames": [
-        "org.jetbrains.kotlin.android",
         "org.jetbrains.kotlin.plugin.compose",
         "org.jetbrains.kotlin.plugin.serialization",
         "com.google.devtools.ksp",
@@ -29,36 +28,10 @@
       "dependencyDashboardApproval": true
     },
     {
-      "description": "Dagger/Hilt compiler+runtime join the held Kotlin toolchain group above (Hilt 2.59+ requires AGP 9). The androidx.hilt:* wrappers are independent and update with AndroidX. NB: the matchDepNames rule above also catches the Hilt Gradle plugin marker `com.google.dagger.hilt.android` — the `com.google.dagger:**` glob here only matches the colon-form artifact coordinates, not the plugin id, which is how the v2.59.2 plugin PR (#14) slipped past the gate.",
-      "groupName": "Kotlin / KSP / Hilt (held — coordinated upgrade)",
+      "description": "Dagger/Hilt compiler+runtime join the coordinated Kotlin/KSP/Hilt group above. The androidx.hilt:* wrappers are independent and update with AndroidX. NB: the matchDepNames rule above also catches the Hilt Gradle plugin marker `com.google.dagger.hilt.android` — the `com.google.dagger:**` glob here only matches the colon-form artifact coordinates, not the plugin id, which is how the v2.59.2 plugin PR (#14) once slipped past the gate.",
+      "groupName": "Kotlin / KSP / Hilt (coordinated)",
       "matchPackageNames": ["com.google.dagger:**"],
       "dependencyDashboardApproval": true
-    },
-    {
-      "description": "Android Gradle Plugin: block the v9 major (requires Gradle 9 and pulls in the held Kotlin/Hilt upgrade); allow 8.x updates.",
-      "groupName": "Android Gradle Plugin",
-      "matchDepNames": ["com.android.application"],
-      "allowedVersions": "<9.0.0"
-    },
-    {
-      "description": "Gradle wrapper: block the v9 major (coupled to the AGP 9 upgrade); allow 8.x updates, which also refresh distributionSha256Sum.",
-      "matchManagers": ["gradle-wrapper"],
-      "allowedVersions": "<9.0.0"
-    },
-    {
-      "description": "androidx.core requires AGP 9.1 + compileSdk 37 from 1.19.0 — cap below the v9 wall until the coordinated AGP 9 / Gradle 9 / Kotlin / Hilt upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
-      "matchPackageNames": ["androidx.core:**"],
-      "allowedVersions": "<1.19.0"
-    },
-    {
-      "description": "androidx.lifecycle requires AGP 9.1 + compileSdk 37 from 2.11.0 — cap below the v9 wall until the coordinated AGP 9 / Gradle 9 / Kotlin / Hilt upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
-      "matchPackageNames": ["androidx.lifecycle:**"],
-      "allowedVersions": "<2.11.0"
-    },
-    {
-      "description": "Room 2.7.0 replaced Gson with kotlinx-serialization for schema-bundle parsing; with exportSchema=true the room-compiler deserializes the schema JSON at KSP time and its generated $$serializer classes need a newer kotlinx-serialization-core than the pinned 1.7.3 (AbstractMethodError on typeParametersSerializers()). Bumping serialization risks forcing Kotlin 2.1+, so hold Room at 2.6.x until the coordinated upgrade. Stays in the AndroidX group, just pinned lower. See CLAUDE.md 'Deferred toolchain upgrade'.",
-      "matchPackageNames": ["androidx.room:**"],
-      "allowedVersions": "<2.7.0"
     },
     {
       "description": "All other AndroidX libraries in one PR (includes the androidx.hilt:* wrappers, which are independent of the Dagger/Hilt compiler).",
