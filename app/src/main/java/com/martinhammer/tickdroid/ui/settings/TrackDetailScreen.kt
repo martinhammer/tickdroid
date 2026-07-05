@@ -63,7 +63,6 @@ import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -220,7 +219,7 @@ private fun PreviewBadge(track: Track, prefs: TrackPrefs) {
             )
         } else {
             Text(
-                text = track.name.take(2).uppercase(Locale.getDefault()),
+                text = track.name.take(2).uppercase(),
                 color = onContainer,
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,

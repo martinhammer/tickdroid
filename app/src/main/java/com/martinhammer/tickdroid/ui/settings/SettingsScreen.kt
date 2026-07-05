@@ -60,7 +60,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -314,7 +313,7 @@ private fun TrackBadge(track: Track, prefs: TrackPrefs) {
             )
         } else {
             Text(
-                text = track.name.take(2).uppercase(Locale.getDefault()),
+                text = track.name.take(2).uppercase(),
                 color = onContainer,
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.SemiBold,

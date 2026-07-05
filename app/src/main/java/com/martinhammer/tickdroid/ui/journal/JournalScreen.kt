@@ -89,7 +89,6 @@ import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
-import java.util.Locale
 
 private val DayLabelWidth = 92.dp
 private val CellGap = 6.dp
@@ -357,7 +356,7 @@ private fun TrackHeader(
                             )
                         } else {
                             Text(
-                                text = track.name.take(2).uppercase(Locale.getDefault()),
+                                text = track.name.take(2).uppercase(),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                             )
@@ -383,8 +382,9 @@ private fun DayRow(
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
 ) {
     val editable = editableDays.isEditable(day, today)
-    val isWeekend = remember(day) {
-        val cal = android.icu.util.Calendar.getInstance(Locale.getDefault())
+    val locale = LocalConfiguration.current.locales[0]
+    val isWeekend = remember(day, locale) {
+        val cal = android.icu.util.Calendar.getInstance(locale)
         cal.time = Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant())
         cal.isWeekend
     }
@@ -427,8 +427,9 @@ private fun DayRow(
 
 @Composable
 private fun DayLabel(day: LocalDate, today: LocalDate) {
-    val dow = day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, Locale.getDefault())
-        .uppercase(Locale.getDefault())
+    val locale = LocalConfiguration.current.locales[0]
+    val dow = day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
+        .uppercase(locale)
     val context = LocalContext.current
     val dateFormat = remember(context) { android.text.format.DateFormat.getDateFormat(context) }
     val sub = when (day) {
