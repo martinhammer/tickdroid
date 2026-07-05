@@ -67,8 +67,11 @@ fun AccountSettingsScreen(
     onBack: () -> Unit,
     viewModel: SettingsViewModel = hiltViewModel(),
 ) {
+    val serverVersion by viewModel.serverVersion.collectAsStateWithLifecycle()
     SettingsScaffold(title = "Account", onBack = onBack) {
         Field(label = "Server", value = viewModel.account.serverUrl)
+        Spacer(Modifier.height(16.dp))
+        ServerVersionField(state = serverVersion)
         Spacer(Modifier.height(16.dp))
         Field(label = "Username", value = viewModel.account.login)
         Spacer(Modifier.height(32.dp))
@@ -354,6 +357,34 @@ private fun SettingsScaffold(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
         ) {
             content()
+        }
+    }
+}
+
+@Composable
+private fun ServerVersionField(state: ServerVersionState) {
+    Column {
+        Text(
+            text = "Tickbuddy version on server",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(4.dp))
+        if (state is ServerVersionState.Loading) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        } else {
+            val value = when (state) {
+                is ServerVersionState.Known -> state.version
+                ServerVersionState.Legacy -> "Unknown (1.0.5 or earlier)"
+                is ServerVersionState.Unavailable ->
+                    if (state.offline) "Cannot check - currently offline"
+                    else "Cannot check - server unreachable"
+                ServerVersionState.Loading -> ""
+            }
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyLarge,
+            )
         }
     }
 }

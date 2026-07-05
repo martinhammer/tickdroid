@@ -3,8 +3,10 @@
 Handoff document for building an Android companion app that syncs to the Tickbuddy Nextcloud backend. This file is the single source of truth for the HTTP API, data model, auth, and sync semantics. If anything here contradicts the code, the code wins — re-read `lib/Controller/*.php` and `lib/Service/*.php` and update this doc.
 
 Backend repo: https://github.com/martinhammer/Tickbuddy
-Nextcloud compatibility: 31–32
-Backend version at time of writing: 1.0.0
+Nextcloud compatibility: 32–34
+Backend version at time of writing: 1.0.6
+
+> Don't hardcode that version — the app now advertises its version and feature set at runtime through the Nextcloud capabilities endpoint. Read it on connect; see §1 "Capability & version discovery".
 
 ---
 
@@ -83,6 +85,39 @@ HTTP status codes used by the backend:
 
 Not applicable for API clients authenticating with Basic auth — Nextcloud exempts Basic-authenticated OCS requests from CSRF. Don't send any CSRF token.
 
+### Capability & version discovery
+
+Tickbuddy registers a Nextcloud **capability**, so the client can discover the installed app version and which optional API features the server supports — without version-sniffing or probing endpoints.
+
+**Important: this endpoint is NOT under the Tickbuddy base URL.** It's a core Nextcloud endpoint:
+
+```
+GET {nextcloudBaseUrl}/ocs/v2.php/cloud/capabilities
+```
+
+Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/json`, Basic auth). Unwrap the usual OCS envelope, then read `data.capabilities.tickbuddy`:
+
+```json
+{
+  "version": "1.0.6",
+  "apiVersion": 1,
+  "features": {
+    "import": true,
+    "export": true,
+    "counterTracks": true,
+    "privateTracks": true,
+    "syncDelta": false,
+    "counterIncrement": false
+  }
+}
+```
+
+- **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
+- **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Two flags matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+
+Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
+
 ---
 
 ## 2. Data model
@@ -127,7 +162,7 @@ Two hard rules that your sync layer must respect:
 
 ## 3. Endpoint reference
 
-All paths below are relative to `{nextcloudBaseUrl}/ocs/v2.php/apps/tickbuddy`. All requests need the headers from §1.
+All paths below are relative to `{nextcloudBaseUrl}/ocs/v2.php/apps/tickbuddy`. All requests need the headers from §1. (The one exception is version/feature discovery, which lives on the core `/ocs/v2.php/cloud/capabilities` endpoint — see §1.)
 
 ### Tracks
 
@@ -256,7 +291,9 @@ Imports a Tickmate `.db` SQLite file (Android Tickmate app's export format). Als
 
 ## 4. Sync strategy (recommended)
 
-The backend has no sync protocol of its own (no `modifiedAt`, no delta endpoint, no ETags, no push). So the mobile app must build sync client-side. Suggested approach:
+As of the version this doc targets, the backend has no sync protocol of its own (no `modifiedAt`, no delta endpoint, no ETags, no push). So the mobile app must build sync client-side. Suggested approach below.
+
+> **Forward-compat:** two of the sharpest edges here (full-range polling and lost counter increments) are slated to be fixed server-side and are already discoverable via capability flags (§1). Guard those code paths on `features.syncDelta` and `features.counterIncrement` so the app upgrades its own behavior when it detects a newer backend. The full-poll + absolute-set approach below remains the correct fallback whenever the flags are `false`.
 
 ### Local schema
 
@@ -279,6 +316,8 @@ On app open, on pull-to-refresh, and periodically (e.g. every 15 min while foreg
 1. `GET /api/tracks` → reconcile by `server_id` (and fall back to `name` match for rows that have no `server_id` yet because they were created offline). Track rows missing from the response are considered deleted server-side → delete locally unless the local row is `dirty` (then it's a conflict — see below).
 2. `GET /api/ticks?from=X&to=Y` for the visible date range, plus any date range that has `dirty` ticks pending push. Reconcile by `(trackId, date)` — that's the natural key.
 
+> When `features.syncDelta` is `true` (§1), a future backend will let you replace step 2's full-window re-download with an incremental "changed since X" pull. Until then, full-range polling is required. One caveat to design for now: because storage is sparse (a removed tick is a *deleted row*, not a zero), any future delta mechanism will need to convey deletions too — don't assume a delta pull can be a simple "rows where modifiedAt > X" over live rows.
+
 ### Push
 
 Walk dirty rows in order: **track creates → track updates → track deletes → tick changes**. The order matters because ticks reference tracks.
@@ -296,7 +335,7 @@ Two devices edit the same track name, or toggle the same tick. Recommended polic
 - If server row differs from local, and local is not `dirty`: take server value (silent overwrite).
 - If server row differs and local IS `dirty`: push local on next push cycle; accept whatever server returns. For deletes specifically: if server shows a track the user deleted locally (and the delete is still queued), push the delete. If the user edited a track the server has deleted, create a new track with the local name + type.
 
-Counter ticks are the trickiest case — if both devices incremented, you'll lose one increment. The backend has no increment endpoint, only "set". Live with it for v1 and warn in the UI; a proper fix would need a server-side increment endpoint.
+Counter ticks are the trickiest case — if both devices incremented the same tick offline, both push the same absolute value and one increment is silently lost. Note this is **not** a last-write-wins timing problem you can fix with a timestamp: both writes carry the same wrong value. The real fix is a commutative operation. When `features.counterIncrement` is `true` (§1), send user taps as signed deltas to `POST /api/ticks/increment` and let the server compose them; concurrent increments then merge correctly. While the flag is `false`, fall back to `POST /api/ticks/set`, live with the lost-increment risk for v1, and consider a subtle UI hint when a counter was edited on multiple devices.
 
 ### Offline queue
 
@@ -314,6 +353,8 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **Private tracks are soft-hidden, not encrypted.** Any client that reads `GET /api/tracks` sees them. The `private` flag controls default visibility in the web UI (there's a "Show private tracks" toggle) and whether they appear in exports. The mobile app should offer the same UX — a toggle/PIN gate on showing private tracks — but do not rely on `private` for any security claim.
 - **No pagination.** Track and tick endpoints return all matching rows. Ticks are bounded by the `from/to` window. Tracks are capped at 99 per user so unbounded list is fine.
 - **No push / websockets.** The mobile app has to poll.
+- **Capabilities live on the core endpoint, not the app endpoint.** Version/feature discovery is `GET /ocs/v2.php/cloud/capabilities` (§1) — under `/cloud`, not `/apps/tickbuddy`. It still needs `OCS-APIRequest: true`. If `data.capabilities.tickbuddy` is absent, the app isn't installed on that server; treat it as a setup failure, not an empty result.
+- **Don't gate features on the version string.** Parse `apiVersion` (int) or check individual `features` flags. String-comparing `version` ("1.0.5" vs "1.0.10") is a footgun.
 - **Nextcloud hosts this app; the domain is NOT under our control.** Don't assume HTTPS, don't pin certificates. Allow any user-supplied hostname that validates via system trust store.
 - **Time zones in `exportedAt`.** The export timestamp uses the server's timezone (PHP `date('c')`). Don't rely on it matching the user's timezone.
 - **`OCS-APIRequest` header is case-insensitive in HTTP, but Nextcloud reads it as given.** Most HTTP clients normalize — verify yours does.
@@ -326,6 +367,12 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 NC=https://cloud.example.com
 USER=alice
 APP_PASS=xxxx-xxxx-xxxx
+
+# Discover version + features (core endpoint, note the /cloud path)
+curl -u "$USER:$APP_PASS" \
+  -H "OCS-APIRequest: true" -H "Accept: application/json" \
+  "$NC/ocs/v2.php/cloud/capabilities"
+# → look for .ocs.data.capabilities.tickbuddy
 
 # List tracks
 curl -u "$USER:$APP_PASS" \
@@ -357,6 +404,7 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 ## 7. Checklist for a minimum-viable mobile client
 
 - [ ] Server URL + login + app password entry with validation round-trip (`GET /api/tracks` with the credentials — a 200 proves all three)
+- [ ] Read `GET /ocs/v2.php/cloud/capabilities` on connect: confirm `tickbuddy` is present (app installed), cache `version` + `features`, gate optional code paths on the flags
 - [ ] Credentials in Keystore-backed encrypted storage
 - [ ] Local SQLite mirror with `dirty` / `deleted` flags
 - [ ] Read: pull tracks on open, pull ticks for visible range
@@ -368,6 +416,8 @@ If any of those return HTML, you forgot `OCS-APIRequest: true`.
 - [ ] 401 handler that clears session and prompts re-auth
 - [ ] Handle `type` immutability in UI (no "change type" button)
 - [ ] Don't send `value=0` to `/toggle`; don't send toggles to counter tracks
+- [ ] Show installed backend `version` in an About/server-info screen
+- [ ] Gate `counterIncrement` / `syncDelta` code paths on capability flags so the app upgrades behavior automatically against newer backends
 
 Nice-to-have:
 - [ ] Nextcloud Login Flow v2 instead of pasted app password

@@ -1,0 +1,2 @@
+Major dependencies version bump across the board.
+Tickbuddy version is now displayed in the Account screen.
