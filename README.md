@@ -1,3 +1,7 @@
+# Tickdroid needs your help - call for Google Play testers
+
+Tickdroid has been submitted for acceptance review on Google Play. Part of the requirements is to have a group of testers for closed testing, before general release on the app store. If you are interested and able to help, please join the group [Tickdroid on Google Groups](https://groups.google.com/g/tickdroid). Further instructions will be posted there. Thanks for your support!
+
 # Tickdroid
 
 Tickdroid is an Android companion app to the Nextcloud application [Tickbuddy](https://github.com/martinhammer/tickbuddy). Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
