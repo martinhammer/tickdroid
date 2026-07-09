@@ -1,6 +1,6 @@
 # Tickdroid Privacy Policy
 
-Last updated: 8 July 2026
+Last updated: 9 July 2026
 
 Tickdroid is a companion app to the Tickbuddy app for Nextcloud. It lets you view and update your daily habit tracks and ticks (the habits you define and your daily check-ins) which are stored on your Nextcloud server. This policy explains what the app does with your information. In short: your data stays between your phone and your Nextcloud server, and none of it comes to me.
 
@@ -23,6 +23,15 @@ To sign you in, sync with Tickbuddy on your Nextcloud server, and work offline, 
 - Your app settings, such as theme and which days are editable.
 
 All of this lives only on your phone. Tickdroid opts out of Android's automatic backup, so this data is not included in device backups to your Google account. When you log out, the app deletes this local copy and clears your settings. Uninstalling the app also removes all locally stored data.
+
+## Deleting your data
+
+Tickdroid stores your data only on your phone and on your Nextcloud server. There is no account with me and no copy of your data on my side, so there is nothing for me to delete. To remove your data yourself:
+
+- From your phone: Open the app's menu and choose Log out. This deletes the local copy of your habit tracks and ticks, your saved Nextcloud login, and your app settings. Uninstalling the app removes the same local data.
+- From your Nextcloud server: Your tracks and ticks are stored by Tickbuddy on your Nextcloud server. Delete them there using Tickbuddy or your Nextcloud account, which you control directly.
+
+What is deleted: your saved Nextcloud login, the local copy of your tracks and ticks, and your app settings. What is kept: nothing on my side, because I never receive your data. Anything on your Nextcloud server stays until you delete it there.
 
 ## What is sent over the network
 
