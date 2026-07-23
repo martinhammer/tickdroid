@@ -1,0 +1,1 @@
+Maintenance release, no user-facing changes from previous version. Back-end configuration changes in order to publish on F-Droid.

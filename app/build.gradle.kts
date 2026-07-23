@@ -16,8 +16,8 @@ android {
         applicationId = "com.martinhammer.tickdroid"
         minSdk = 31
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -47,6 +47,14 @@ android {
                 "proguard-rules.pro"
             )
         }
+    }
+    dependenciesInfo {
+        // AGP embeds a Google-key-encrypted dependency-metadata block in the APK
+        // signing block by default. F-Droid rejects it (opaque, non-reproducible), so
+        // strip it from the APK. Kept in the AAB so Google Play still gets dependency
+        // insights — the two outputs are independent (assembleRelease vs bundleRelease).
+        includeInApk = false
+        includeInBundle = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
