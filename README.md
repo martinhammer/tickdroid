@@ -1,14 +1,12 @@
-# Tickdroid needs your help - call for Google Play testers
-
-Tickdroid has been submitted for acceptance review on Google Play. Part of the requirements is to have a group of testers for closed testing, before general release on the app store. If you are interested and able to help, please join the group [Tickdroid on Google Groups](https://groups.google.com/g/tickdroid). Further instructions will be posted there. Thanks for your support!
-
 # Tickdroid
 
 Tickdroid is an Android companion app to the Nextcloud application [Tickbuddy](https://github.com/martinhammer/tickbuddy). Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
 
 The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
 
-Tickbuddy and Tickdroid were inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
+Tickdroid has been published on F-Droid app store.
+
+[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="40">](https://f-droid.org/packages/com.martinhammer.tickdroid)
 
 ### Features
 Some of the key features which already exist:
@@ -21,7 +19,6 @@ Some of the key features which already exist:
 * Custom colours and emoji icons for tracks
 * Landscape mode is handled gracefully
 
-
 Planned features:
 * Further UI enhancements and polish
 * Possibility of localization 
@@ -31,9 +28,11 @@ Planned features:
 
 This is a personal hobby project which I am using to learn about Nextcloud and Android app development and AI-assisted development. Significant portion of the code has been written by Claude Code. 
 
+Tickbuddy and Tickdroid were originally inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/), which I had been using for a number of years. However, there isn't any active development of the app and I wanted something with a server backend, ideally on Nextcloud.
+
 At the time of starting this project there is no equivalent app in the Nextcloud ecosystem, and the Tickmate Android application is no longer actively maintained. I am now actively using Tickbuddy and Tickdroid for my personal tracking, and would be happy if others find it useful.
 
-### Found a bug?
+### Found a bug? Do you have a suggestion?
 
 Feel free to get in touch and/or submit an issue.
 
