@@ -37,7 +37,20 @@ This file captures the current state of the codebase and decisions made along th
 
 - `isMinifyEnabled = true` for the `release` build type — R8 strips/shrinks/optimizes. The only custom keep rule in `proguard-rules.pro` is `-dontwarn com.google.errorprone.annotations.**` (Tink ships errorprone annotation references that aren't on the runtime classpath; benign compile-time-only suppression). All other libraries (Retrofit, kotlinx-serialization, Room, Hilt, OkHttp) ship sufficient consumer rules.
 - `android:allowBackup="false"` in the manifest. Auto Backup and device-to-device transfer are both disabled to keep `EncryptedSharedPreferences` credentials (key bound to the device Keystore) from ending up in a backup that can't be restored. Local state is recoverable by re-syncing from Nextcloud; only per-track color/emoji overrides (`track_prefs`) would be lost on reinstall.
-- F-Droid signs from source with their own key. Local release APKs need to be signed (e.g. with the debug keystore via `apksigner`) only for sideload testing.
+- F-Droid builds from source and — because reproducible builds are enabled (see below) — ships the APK signed with **our** key rather than theirs. Local release APKs need to be signed (e.g. with the debug keystore via `apksigner`) only for sideload testing.
+
+## F-Droid publishing
+
+Submitted for inclusion on 2026-07-23 via merge request [fdroiddata!43688](https://gitlab.com/fdroid/fdroiddata/-/merge_requests/43688), which closes [rfp#3903](https://gitlab.com/fdroid/rfp/-/issues/3903). The recipe lives in F-Droid's own `fdroiddata` repo at `metadata/com.martinhammer.tickdroid.yml`, **not** in this repo. Because it sets `AutoUpdateMode: Version` + `UpdateCheckMode: Tags`, F-Droid picks up new `v*` tags automatically — the recipe shouldn't need further edits for routine releases.
+
+**Reproducible builds are enabled** (`Binaries` + `AllowedAPKSigningKeys` in the recipe), so the F-Droid build is verified byte-identical to our published APK and then signed with our certificate (SHA-256 `a398f829a84c52c9a8bbf2c1357f036b8e822b71ca86f56edebe36bda8ba1c3c`). That keeps one signature across GitHub, F-Droid, and — if it's ever added — Play, so users can move between sources without uninstalling. It is also effectively a one-way door: had we let F-Droid sign with their key, switching later would break updates for existing users.
+
+Two constraints follow, and both are easy to trip over months from now:
+
+- **Never re-enable `dependenciesInfo.includeInApk`.** AGP embeds a Google-key-encrypted dependency-metadata blob in the APK signing block by default. F-Droid's `check apk` scanner rejects it outright (`ERROR Found extra signing block 'Dependency metadata'`) and it is non-reproducible anyway. `includeInBundle = true` is deliberately kept so Play would still get dependency insights — the two flags apply to different artifacts (`assembleRelease` vs `bundleRelease`) and never interact.
+- **Every release must stay byte-reproducible and be published at the `Binaries` URL**, i.e. a `tickdroid-<versionName>.apk` asset attached to the `v<versionName>` GitHub release. F-Droid rebuilds from the tag and compares against exactly that file; if it diverges, the release can't ship with our signature. Also keep signing with the same keystore — a different cert breaks `AllowedAPKSigningKeys`.
+
+To sanity-check a release APK before publishing, enumerate its APK Signing Block IDs: expect only `0x7109871a` (v2 signature) and `0x42726577` (verity padding), and **never** `0x504b4453` (dependency metadata). Verifying content reproducibility is a `unzip -v` CRC comparison against F-Droid's from-source build — v2-only signing adds no zip entries, so every entry's CRC must match.
 
 ## Package layout (single module)
 
