@@ -6,7 +6,7 @@ The application enables users to record whether a specific event has occurred or
 
 Tickdroid has been published on F-Droid app store.
 
-[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="40">](https://f-droid.org/packages/com.martinhammer.tickdroid)
+[<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="80">](https://f-droid.org/packages/com.martinhammer.tickdroid)
 
 ### Features
 Some of the key features which already exist:
