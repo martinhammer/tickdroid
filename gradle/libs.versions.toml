@@ -23,7 +23,7 @@ navigationCompose = "2.9.8"
 securityCrypto = "1.1.0"
 coroutines = "1.11.0"
 turbine = "1.2.1"
-mockwebserver = "5.4.0"
+mockwebserver = "5.5.0"
 mockk = "1.14.11"
 
 [libraries]
