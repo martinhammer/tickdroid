@@ -11,6 +11,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.InetAddress
 
 /**
  * The TLS half of [AuthProber]'s error classification.
@@ -32,15 +33,19 @@ class AuthProberTlsTest {
     private lateinit var prober: AuthProber
 
     @Before fun setUp() {
+        // Bind and connect by literal IP, never by name. On GitHub's runners "localhost"
+        // resolves to ::1 first while MockWebServer binds IPv4, so the connection is refused
+        // before any handshake — a plain ConnectException that correctly maps to Unreachable,
+        // making these tests fail on CI while passing locally.
         val cert = HeldCertificate.Builder()
-            .addSubjectAlternativeName("localhost")
+            .addSubjectAlternativeName(LOOPBACK)
             .build()
         val serverCertificates = HandshakeCertificates.Builder()
             .heldCertificate(cert)
             .build()
         server = MockWebServer().apply {
             useHttps(serverCertificates.sslSocketFactory(), false)
-            start()
+            start(InetAddress.getByName(LOOPBACK), 0)
         }
         prober = AuthProber(OcsHeadersInterceptor())
     }
@@ -49,11 +54,17 @@ class AuthProberTlsTest {
         server.shutdown()
     }
 
+    // The SAN matches the host we connect to, so the *only* reason the handshake can fail is
+    // the untrusted chain — which is exactly what these tests are about.
     private fun creds(): Credentials = Credentials(
-        serverUrl = "https://localhost:${server.port}",
+        serverUrl = "https://$LOOPBACK:${server.port}",
         login = "alice",
         appPassword = "pw",
     )
+
+    private companion object {
+        const val LOOPBACK = "127.0.0.1"
+    }
 
     @Test fun `untrusted certificate chain maps to UntrustedCertificate, not Unreachable`() = runTest {
         server.enqueue(MockResponse().setResponseCode(200).setBody("{}"))
