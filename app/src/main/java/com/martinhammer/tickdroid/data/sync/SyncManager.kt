@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.time.LocalDate
+import javax.net.ssl.SSLException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,6 +29,13 @@ import javax.inject.Singleton
 enum class SyncErrorKind {
     /** IOException — the request never completed (DNS, timeout, refused, no network). */
     ServerUnreachable,
+
+    /**
+     * SSLException — TLS handshake failed (untrusted chain, expired cert, hostname mismatch).
+     * Distinct from [ServerUnreachable]: the network is fine, so telling the user to check it
+     * sends them the wrong way.
+     */
+    UntrustedCertificate,
 
     /** HttpException — the server responded with a non-2xx status. */
     ServerError,
@@ -93,6 +101,8 @@ class SyncManager @Inject constructor(
                 }
             }
             _status.value = SyncStatus.Idle
+        } catch (e: SSLException) {
+            _status.value = SyncStatus.Error(SyncErrorKind.UntrustedCertificate, e.message)
         } catch (e: IOException) {
             _status.value = SyncStatus.Error(SyncErrorKind.ServerUnreachable, e.message)
         } catch (e: retrofit2.HttpException) {

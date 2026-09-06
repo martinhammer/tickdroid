@@ -9,6 +9,7 @@ sealed interface SyncIssue {
     data object None : SyncIssue
     data class Offline(val hasUnsavedChanges: Boolean) : SyncIssue
     data class ServerUnreachable(val hasUnsavedChanges: Boolean) : SyncIssue
+    data class UntrustedCertificate(val hasUnsavedChanges: Boolean) : SyncIssue
     data class ServerError(val hasUnsavedChanges: Boolean) : SyncIssue
 }
 
@@ -18,6 +19,7 @@ fun SyncIssue.toLabel(): String? {
         SyncIssue.None -> return null
         is SyncIssue.Offline -> "Offline" to hasUnsavedChanges
         is SyncIssue.ServerUnreachable -> "Server unreachable" to hasUnsavedChanges
+        is SyncIssue.UntrustedCertificate -> "Certificate not trusted" to hasUnsavedChanges
         is SyncIssue.ServerError -> "Sync error" to hasUnsavedChanges
     }
     return if (hasUnsaved) "$category, unsaved changes" else category
@@ -34,6 +36,7 @@ internal fun computeSyncIssue(
     return when (kind) {
         null -> SyncIssue.None
         SyncErrorKind.ServerUnreachable -> SyncIssue.ServerUnreachable(hasUnsaved)
+        SyncErrorKind.UntrustedCertificate -> SyncIssue.UntrustedCertificate(hasUnsaved)
         SyncErrorKind.ServerError -> SyncIssue.ServerError(hasUnsaved)
     }
 }

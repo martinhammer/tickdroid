@@ -85,6 +85,18 @@ class SyncIssueTest {
         )
     }
 
+    @Test fun `TLS failure maps to UntrustedCertificate with its own label`() {
+        val issue = computeSyncIssue(
+            isOnline = true,
+            pull = SyncStatus.Error(SyncErrorKind.UntrustedCertificate),
+            push = PushStatus.Idle,
+            hasUnsaved = false,
+        )
+        assertEquals(SyncIssue.UntrustedCertificate(hasUnsavedChanges = false), issue)
+        // Not "Server unreachable" — the network is fine, so that label sends the user the wrong way.
+        assertEquals("Certificate not trusted", issue.toLabel())
+    }
+
     @Test fun `Syncing in progress without error stays None`() {
         assertEquals(
             SyncIssue.None,

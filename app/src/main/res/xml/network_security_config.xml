@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trust anchors for all app traffic.
+
+  Android's default (API 24+) is the system CA store only, which breaks self-hosted
+  Nextcloud instances behind a private or self-signed CA: the certificate works in the
+  device browser but not here. See issue #37.
+
+  Adding "user" widens trust to CAs the device owner installed themselves. Chain,
+  hostname and expiry are still fully verified — this is not a "disable TLS" switch,
+  and there is deliberately no such switch. Installing a user CA is a manual trip
+  through system settings behind a full-screen "Your data won't be private" warning
+  and a device-credential prompt, so the trust granted here is something the user has
+  already been made to defend.
+
+  This cannot be narrowed with <domain-config>: the server hostname is entered by the
+  user at runtime and this file is a static resource.
+
+  Note cleartextTrafficPermitted is left at its default (false). Tickdroid is
+  https-only by design — see ServerUrl.normalize.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config>
+        <trust-anchors>
+            <certificates src="system" />
+            <!--
+              Lint flags this (AcceptsUserCertificates) precisely because it widens release
+              trust. That is the intent here and the rationale is above, so it is suppressed
+              on this line only — the check stays live for anything else.
+            -->
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

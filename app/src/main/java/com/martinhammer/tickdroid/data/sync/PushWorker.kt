@@ -18,6 +18,7 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
 import retrofit2.HttpException
 import java.io.IOException
+import javax.net.ssl.SSLException
 
 /**
  * Drains every dirty tick row to the server. Boolean ticks use the spec's replay-safe
@@ -81,6 +82,9 @@ class PushWorker @AssistedInject constructor(
                     return Result.failure()
                 }
                 syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
+                return Result.retry()
+            } catch (e: SSLException) {
+                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.UntrustedCertificate, e.message))
                 return Result.retry()
             } catch (e: IOException) {
                 syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))

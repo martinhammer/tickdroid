@@ -60,6 +60,10 @@ class AuthViewModel @Inject constructor(
                     "Server URL is invalid. Make sure it includes the scheme (e.g. https://cloud.example.com)."
                 is AuthProbeResult.Unreachable ->
                     "Could not reach the server: ${result.message}. Check the URL, your network, and that the server is running."
+                is AuthProbeResult.UntrustedCertificate ->
+                    "This server's certificate isn't trusted by your device. " +
+                        "If you use a private or self-signed CA, install it in your device security settings." +
+                        result.detail?.let { " ($it)" }.orEmpty()
                 AuthProbeResult.NotNextcloud ->
                     "That URL responded but doesn't look like a Nextcloud server. " +
                         "If Nextcloud is hosted under a subpath, include it (e.g. https://example.com/nextcloud)."

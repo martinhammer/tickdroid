@@ -1,8 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<network-security-config>
+<!--
+  Debug-only override of the main config. Resource merging means this file (not
+  res/xml/network_security_config.xml) is what debug builds actually use, so the trust
+  anchors must stay a superset of the main one — otherwise the user-CA support added for
+  issue #37 would be present in release and missing from every build a developer tests on.
+
+  The one debug-only addition is cleartextTrafficPermitted, which the instrumentation
+  suite needs to talk to MockWebServer over plain HTTP. Release stays https-only.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" tools:ignore="AcceptsUserCertificates" />
         </trust-anchors>
     </base-config>
 </network-security-config>

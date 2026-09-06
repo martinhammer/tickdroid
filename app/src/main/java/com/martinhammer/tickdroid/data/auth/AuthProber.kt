@@ -8,6 +8,7 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
+import javax.net.ssl.SSLException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -19,6 +20,17 @@ sealed interface AuthProbeResult {
 
     /** URL parses but [okhttp3.OkHttpClient] couldn't reach the host (DNS/connection refused/etc). */
     data class Unreachable(val message: String) : AuthProbeResult
+
+    /**
+     * TLS handshake failed: the server's certificate chain isn't trusted, has expired, or
+     * doesn't match the hostname. Split out from [Unreachable] because the remedy is entirely
+     * different — the network is fine and the server is up.
+     *
+     * [detail] is the underlying message, passed through verbatim rather than guessed at.
+     * Do not classify on its text: it comes from the platform TLS provider (Conscrypt on
+     * device, SunJSSE under JVM unit tests) and the wording differs between them.
+     */
+    data class UntrustedCertificate(val detail: String?) : AuthProbeResult
 
     /** Reached the host but `/status.php` didn't look like a Nextcloud server. */
     data object NotNextcloud : AuthProbeResult
@@ -79,6 +91,8 @@ class AuthProber @Inject constructor(
                     body.contains("nextcloud", ignoreCase = true)
                 return if (looksLikeNextcloud) null else AuthProbeResult.NotNextcloud
             }
+        } catch (e: SSLException) {
+            return AuthProbeResult.UntrustedCertificate(e.message)
         } catch (e: IOException) {
             return AuthProbeResult.Unreachable(e.message ?: "Could not reach server")
         }
@@ -98,6 +112,8 @@ class AuthProber @Inject constructor(
                     else -> AuthProbeResult.UnexpectedStatus(AuthProbeResult.Stage.Auth, response.code)
                 }
             }
+        } catch (e: SSLException) {
+            return AuthProbeResult.UntrustedCertificate(e.message)
         } catch (e: IOException) {
             return AuthProbeResult.Unreachable(e.message ?: "Network error during auth check")
         }
@@ -118,6 +134,8 @@ class AuthProber @Inject constructor(
                     else -> AuthProbeResult.UnexpectedStatus(AuthProbeResult.Stage.Tickbuddy, response.code)
                 }
             }
+        } catch (e: SSLException) {
+            return AuthProbeResult.UntrustedCertificate(e.message)
         } catch (e: IOException) {
             return AuthProbeResult.Unreachable(e.message ?: "Network error during Tickbuddy check")
         }
