@@ -1,0 +1,4 @@
+Support for self-signed certificates (martinhammer/tickdroid#37).
+Fix intermittent crashes on sign-out/sign-on sequence.
+Fix for handling subpath URLs.
+Dependencies version bump.
