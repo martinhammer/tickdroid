@@ -62,6 +62,55 @@ class BasicAuthInterceptorTest {
         assertEquals("/api/tracks", recorded.path)
     }
 
+    @Test fun `preserves a subpath origin on every request`() {
+        // Regression: the interceptor used to set only scheme/host/port, so a Nextcloud hosted
+        // under a subpath lost it on every API call. AuthProber never had the bug (it uses
+        // addPathSegments), so such a server passed the connect probe and then failed on every
+        // real request — in a server-dependent way, depending on what answers at the root.
+        val creds = Credentials(
+            serverUrl = "http://${server.hostName}:${server.port}/nextcloud",
+            login = "alice",
+            appPassword = "wonderland",
+        )
+        every { authRepo.currentCredentials() } returns creds
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        client().newCall(Request.Builder().url("http://localhost/ocs/v2.php/apps/tickbuddy/api/tracks").build())
+            .execute()
+            .close()
+
+        assertEquals("/nextcloud/ocs/v2.php/apps/tickbuddy/api/tracks", server.takeRequest().path)
+    }
+
+    @Test fun `subpath origin keeps query parameters`() {
+        val creds = Credentials("http://${server.hostName}:${server.port}/nc", "alice", "pw")
+        every { authRepo.currentCredentials() } returns creds
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        client().newCall(
+            Request.Builder().url("http://localhost/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-04-01&to=2026-04-30").build()
+        ).execute().close()
+
+        assertEquals(
+            "/nc/ocs/v2.php/apps/tickbuddy/api/ticks?from=2026-04-01&to=2026-04-30",
+            server.takeRequest().path,
+        )
+    }
+
+    @Test fun `a trailing slash on the stored origin does not double up`() {
+        // ServerUrl.normalize strips trailing slashes, but a stored value from an older install
+        // could still carry one — it must not produce "/nextcloud//ocs/...".
+        val creds = Credentials("http://${server.hostName}:${server.port}/nextcloud/", "alice", "pw")
+        every { authRepo.currentCredentials() } returns creds
+        server.enqueue(MockResponse().setResponseCode(200))
+
+        client().newCall(Request.Builder().url("http://localhost/ocs/v2.php/cloud/user").build())
+            .execute()
+            .close()
+
+        assertEquals("/nextcloud/ocs/v2.php/cloud/user", server.takeRequest().path)
+    }
+
     @Test fun `401 triggers signOut`() {
         val creds = Credentials("http://${server.hostName}:${server.port}", "alice", "pw")
         every { authRepo.currentCredentials() } returns creds
