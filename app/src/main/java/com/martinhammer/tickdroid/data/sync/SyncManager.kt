@@ -12,10 +12,14 @@ import com.martinhammer.tickdroid.data.local.TrackPrefsDao
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -88,6 +92,25 @@ class SyncManager @Inject constructor(
     /** Run [block] under the same lock that pull uses. PushWorker calls this. */
     suspend fun <T> runExclusive(block: suspend () -> T): T = mutex.withLock { block() }
 
+    /** Application-lifetime scope for fire-and-forget syncs. Outlives any ViewModel. */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Fire-and-forget pull. **UI callers must use this rather than launching [pull] in a
+     * `viewModelScope`.**
+     *
+     * A sync is application work, not UI work. Tying it to a ViewModel means navigation can
+     * cancel it mid-transaction, and Room tears the connection down on cancellation while the
+     * transaction block is still executing on its own executor thread — the resulting
+     * `SQLITE_MISUSE` ("connection is closed") escapes there as an uncaught fatal rather than
+     * being absorbed as a `CancellationException`. That crashed the app on every first sign-in.
+     *
+     * `PushWorker` still awaits [pull] directly: it has to, to report its `Result`.
+     */
+    fun schedulePull(from: LocalDate, to: LocalDate) {
+        scope.launch { pull(from, to) }
+    }
+
     suspend fun pull(from: LocalDate, to: LocalDate) = withContext(Dispatchers.IO) {
         if (authRepository.state.value !is AuthState.SignedIn) return@withContext
         _status.value = SyncStatus.Syncing
@@ -95,9 +118,13 @@ class SyncManager @Inject constructor(
             mutex.withLock {
                 val tracks = api.getTracks().ocs.data
                 val ticks = api.getTicks(from.toString(), to.toString()).ocs.data
-                db.withTransaction {
-                    reconcileTracks(tracks)
-                    reconcileTicks(ticks, from.toString(), to.toString())
+                // Never abandon a half-applied reconcile: see schedulePull's note on what
+                // Room does to the connection when a transaction's caller is cancelled.
+                withContext(NonCancellable) {
+                    db.withTransaction {
+                        reconcileTracks(tracks)
+                        reconcileTicks(ticks, from.toString(), to.toString())
+                    }
                 }
             }
             _status.value = SyncStatus.Idle

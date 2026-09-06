@@ -137,7 +137,9 @@ class JournalViewModel @Inject constructor(
         _today.value = clock.today()
         val oldest = _oldestVisible.value
         val today = _today.value
-        viewModelScope.launch { syncManager.pull(oldest, today) }
+        // Not viewModelScope: a nav transition that clears this ViewModel would cancel the
+        // pull mid-transaction and take the process down with it. See SyncManager.schedulePull.
+        syncManager.schedulePull(oldest, today)
     }
 
     /** Extend the window 30 more days into the past and pull the newly visible chunk. */
@@ -145,9 +147,7 @@ class JournalViewModel @Inject constructor(
         val previousOldest = _oldestVisible.value
         val newOldest = previousOldest.minusDays(30)
         _oldestVisible.value = newOldest
-        viewModelScope.launch {
-            syncManager.pull(newOldest, previousOldest.minusDays(1))
-        }
+        syncManager.schedulePull(newOldest, previousOldest.minusDays(1))
     }
 
     fun toggleBoolean(trackLocalId: Long, date: LocalDate) {

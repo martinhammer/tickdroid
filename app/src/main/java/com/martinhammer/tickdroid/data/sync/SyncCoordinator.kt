@@ -1,11 +1,9 @@
 package com.martinhammer.tickdroid.data.sync
 
-import android.content.Context
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
-import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,9 +20,9 @@ import javax.inject.Singleton
  */
 @Singleton
 class SyncCoordinator @Inject constructor(
-    @ApplicationContext private val context: Context,
     private val authRepository: AuthRepository,
     private val scheduler: SyncScheduler,
+    private val syncManager: SyncManager,
     private val database: TickdroidDatabase,
     private val uiPreferences: UiPreferences,
 ) {
@@ -55,11 +53,25 @@ class SyncCoordinator @Inject constructor(
                             // Hilt-singleton DB here would permanently break the next sign-in.
                             if (previous is AuthState.SignedIn) {
                                 scheduler.cancelAll()
-                                // Delete the DB file rather than clearAllTables(): the latter opens
-                                // the DB and runs migrations, which can crash on schema mismatch
-                                // (e.g. an old install left over from a previous schema version).
-                                database.close()
-                                context.deleteDatabase(TickdroidDatabase.NAME)
+                                // Under the sync lock: pulls run on an application-lifetime
+                                // scope (SyncManager.schedulePull), so one can still be inside
+                                // db.withTransaction when the user signs out.
+                                //
+                                // clearAllTables(), NOT close() + deleteDatabase(). Closing is
+                                // permanent for a Hilt @Singleton: nothing recreates the
+                                // instance, so every consumer (SyncManager, the repositories,
+                                // the injected DAOs) keeps a reference to a dead database for
+                                // the rest of the process. Signing back in without killing the
+                                // app then crashed on the first query with
+                                // "SQLException: connection is closed".
+                                //
+                                // The schema-mismatch worry that originally motivated file
+                                // deletion doesn't justify it: there is no destructive
+                                // migration fallback, so a stale on-disk schema crashes at
+                                // startup long before anyone reaches sign-out.
+                                syncManager.runExclusive {
+                                    database.clearAllTables()
+                                }
                                 uiPreferences.clear()
                             }
                         }

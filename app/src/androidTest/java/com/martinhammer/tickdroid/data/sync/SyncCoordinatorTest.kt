@@ -11,11 +11,13 @@ import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
+import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -39,7 +41,17 @@ class SyncCoordinatorTest {
         store = CredentialStore(context).also { it.clear() }
         auth = AuthRepository(store)
         scheduler = RecordingScheduler(context)
-        coordinator = SyncCoordinator(context, auth, scheduler, db, prefs)
+        // Only the mutex matters here — the coordinator takes it around the wipe. No pull runs,
+        // so the api is never touched.
+        val syncManager = SyncManager(
+            api = mockk<TickbuddyApi>(relaxed = true),
+            db = db,
+            trackDao = db.trackDao(),
+            tickDao = db.tickDao(),
+            trackPrefsDao = db.trackPrefsDao(),
+            authRepository = auth,
+        )
+        coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs)
         coordinator.start()
     }
 
@@ -111,11 +123,45 @@ class SyncCoordinatorTest {
                 prefs.gridDensity.value == GridDensity.Default
         }
 
-        assertFalse(
-            "DB file should be deleted after sign-out",
-            context.getDatabasePath(TickdroidDatabase.NAME).exists(),
+        assertTrue("tracks should be wiped on sign-out", db.trackDao().getAll().isEmpty())
+        assertTrue(
+            "ticks should be wiped on sign-out",
+            db.tickDao().getRange("2026-01-01", "2026-12-31").isEmpty(),
         )
         assertEquals(GridDensity.Default, prefs.gridDensity.value)
+    }
+
+    @Test fun signOut_thenSignInAgain_leavesDatabaseUsable() = runTest {
+        // Regression for the crash on signing back in without restarting the app. The wipe used
+        // to close() the Hilt @Singleton database and delete its file. Nothing recreates that
+        // instance, so the next sign-in's pull hit a permanently dead database and the process
+        // died with "SQLException: connection is closed" inside reconcileTracks.
+        auth.signIn(Credentials("https://srv.example", "u", "p"))
+        waitFor { scheduler.pushNowCalls > 0 }
+        db.trackDao().insert(
+            TrackEntity(serverId = 1L, name = "T", type = "boolean", sortOrder = 0, private = false),
+        )
+
+        // prefs.clear() is the last step of the wipe handler, so it is the signal that
+        // clearAllTables() has already run. (waitFor's condition can't call suspend DAOs.)
+        prefs.setGridDensity(GridDensity.HIGH)
+        val cancelBaseline = scheduler.cancelAllCalls
+        auth.signOut()
+        waitFor {
+            scheduler.cancelAllCalls > cancelBaseline &&
+                prefs.gridDensity.value == GridDensity.Default
+        }
+        assertTrue("wipe did not clear tracks", db.trackDao().getAll().isEmpty())
+
+        auth.signIn(Credentials("https://srv.example", "u2", "p2"))
+        waitFor { scheduler.pushNowCalls > 1 }
+
+        // The database must still serve reads and writes — this is what crashed before.
+        val id = db.trackDao().insert(
+            TrackEntity(serverId = 2L, name = "After", type = "boolean", sortOrder = 0, private = false),
+        )
+        assertTrue("insert after re-login failed", id > 0)
+        assertEquals(setOf(2L), db.trackDao().getAll().mapNotNull { it.serverId }.toSet())
     }
 
     private suspend fun waitFor(timeoutMs: Long = 2_000, condition: () -> Boolean) {
