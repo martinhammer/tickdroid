@@ -21,15 +21,18 @@ Some of the key features which already exist:
 * Landscape mode is handled gracefully
 
 Planned features:
-* Further UI enhancements and polish
-* Possibility of localization 
+* Android widget
+* Add / remove / rename tracks from Tickdroid
+* Per-track statistics and visualisations
+* Tracking of goals
+* Localisation 
 * ...and more once these goals are achieved
 
 ### Motivation
 
 This is a personal hobby project which I am using to learn about Nextcloud and Android app development and AI-assisted development. Significant portion of the code has been written by Claude Code. 
 
-Tickbuddy and Tickdroid were originally inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/), which I had been using for a number of years. However, there isn't any active development of the app and I wanted something with a server backend, ideally on Nextcloud.
+Tickbuddy and Tickdroid were originally inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/), which I had been using for a number of years. However, there isn't any active development of the app and I wanted something with a server back-end, ideally on Nextcloud.
 
 At the time of starting this project there is no equivalent app in the Nextcloud ecosystem, and the Tickmate Android application is no longer actively maintained. I am now actively using Tickbuddy and Tickdroid for my personal tracking, and would be happy if others find it useful.
 
