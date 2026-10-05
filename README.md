@@ -53,7 +53,7 @@ Main screen - dark theme, days down, with emojis as headings and some custom col
 
 App settings screen
 
-<img src="screenshots/Settings_20260430_01.png" alt="Screenshot of app settings screen" width="50%">
+<img src="screenshots/Settings_20261005_01.png" alt="Screenshot of app settings screen" width="50%">
 
 Track settings screen - assigning a custom colour and emoji icon
 
