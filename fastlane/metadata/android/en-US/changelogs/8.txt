@@ -1,0 +1,3 @@
+Tracks down mode (aka flipped axis) in addition to the existing Days down via a new option in App settings.
+Floating 'Today' button to jump back to today after scrolling.
+Dependencies version bump.
