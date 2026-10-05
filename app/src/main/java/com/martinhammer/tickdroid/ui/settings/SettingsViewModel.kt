@@ -6,6 +6,7 @@ import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
@@ -80,6 +81,8 @@ class SettingsViewModel @Inject constructor(
 
     val gridDensity: StateFlow<GridDensity> = uiPreferences.gridDensity
 
+    val journalLayout: StateFlow<JournalLayout> = uiPreferences.journalLayout
+
     val themeMode: StateFlow<ThemeMode> = uiPreferences.themeMode
 
     val editableDays: StateFlow<EditableDays> = uiPreferences.editableDays
@@ -87,6 +90,8 @@ class SettingsViewModel @Inject constructor(
     fun setShowPrivate(value: Boolean) = uiPreferences.setShowPrivate(value)
 
     fun setGridDensity(value: GridDensity) = uiPreferences.setGridDensity(value)
+
+    fun setJournalLayout(value: JournalLayout) = uiPreferences.setJournalLayout(value)
 
     fun setThemeMode(value: ThemeMode) = uiPreferences.setThemeMode(value)
 

@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.ui.settings
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.Credentials
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
+import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.remote.OcsBody
 import com.martinhammer.tickdroid.data.remote.OcsEnvelope
@@ -14,6 +15,7 @@ import com.martinhammer.tickdroid.data.remote.dto.TickbuddyCapability
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -94,5 +96,13 @@ class SettingsViewModelTest {
         val state = viewModel().serverVersion.value
 
         assertEquals(ServerVersionState.Unavailable(offline = false), state)
+    }
+
+    @Test fun `setJournalLayout writes through to UiPreferences`() {
+        coEvery { api.getCapabilities() } returns capabilitiesEnvelope(tickbuddy = null)
+
+        viewModel().setJournalLayout(JournalLayout.TRACKS_DOWN)
+
+        verify { uiPreferences.setJournalLayout(JournalLayout.TRACKS_DOWN) }
     }
 }

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.repository.TickKey
@@ -48,6 +49,7 @@ data class JournalUiState(
     val hasHiddenPrivateTracks: Boolean = false,
     val trackPrefs: Map<Long, TrackPrefs> = emptyMap(),
     val editableDays: EditableDays = EditableDays.Default,
+    val layout: JournalLayout = JournalLayout.Default,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -78,6 +80,7 @@ class JournalViewModel @Inject constructor(
         val density: GridDensity,
         val trackPrefs: Map<Long, TrackPrefs>,
         val editableDays: EditableDays,
+        val layout: JournalLayout,
     )
 
     private val prefs = combine(
@@ -85,7 +88,8 @@ class JournalViewModel @Inject constructor(
         uiPreferences.gridDensity,
         trackPrefsRepository.observeAll(),
         uiPreferences.editableDays,
-    ) { sp, d, tp, ed -> PrefsBundle(sp, d, tp, ed) }
+        uiPreferences.journalLayout,
+    ) { sp, d, tp, ed, jl -> PrefsBundle(sp, d, tp, ed, jl) }
 
     private data class SyncBundle(
         val pull: SyncStatus,
@@ -121,6 +125,7 @@ class JournalViewModel @Inject constructor(
             hasHiddenPrivateTracks = !prefsBundle.showPrivate && tracks.any { it.private },
             trackPrefs = prefsBundle.trackPrefs,
             editableDays = prefsBundle.editableDays,
+            layout = prefsBundle.layout,
         )
     }.stateIn(
         scope = viewModelScope,

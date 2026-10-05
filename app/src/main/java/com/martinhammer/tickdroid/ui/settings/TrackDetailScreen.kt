@@ -161,7 +161,11 @@ private fun TrackDetailContent(
         )
         Spacer(Modifier.height(24.dp))
 
-        SectionLabel(label = "Icon / Title", subtitle = "Use the emoji keyboard to select an icon or leave empty for the 2-letter abbreviation.")
+        SectionLabel(
+            label = "Icon",
+            subtitle = "Optional. Replaces the two-letter abbreviation in Days down, " +
+                "and sits next to the name in Tracks down.",
+        )
         Spacer(Modifier.height(8.dp))
         EmojiField(
             current = prefs.emoji,

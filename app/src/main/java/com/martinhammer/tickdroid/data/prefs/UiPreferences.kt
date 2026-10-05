@@ -34,6 +34,11 @@ class UiPreferences @Inject constructor(
     )
     val editableDays: StateFlow<EditableDays> = _editableDays.asStateFlow()
 
+    private val _journalLayout = MutableStateFlow(
+        JournalLayout.fromName(prefs.getString(KEY_JOURNAL_LAYOUT, null))
+    )
+    val journalLayout: StateFlow<JournalLayout> = _journalLayout.asStateFlow()
+
     fun setShowPrivate(value: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_PRIVATE, value).apply()
         _showPrivate.value = value
@@ -54,6 +59,11 @@ class UiPreferences @Inject constructor(
         _editableDays.value = value
     }
 
+    fun setJournalLayout(value: JournalLayout) {
+        prefs.edit().putString(KEY_JOURNAL_LAYOUT, value.name).apply()
+        _journalLayout.value = value
+    }
+
     /** Resets all UI preferences to defaults. Called on sign-out. */
     fun clear() {
         prefs.edit().clear().apply()
@@ -61,6 +71,7 @@ class UiPreferences @Inject constructor(
         _gridDensity.value = GridDensity.fromName(null)
         _themeMode.value = ThemeMode.fromName(null)
         _editableDays.value = EditableDays.fromName(null)
+        _journalLayout.value = JournalLayout.fromName(null)
     }
 
     private companion object {
@@ -68,5 +79,6 @@ class UiPreferences @Inject constructor(
         const val KEY_GRID_DENSITY = "grid_density"
         const val KEY_THEME_MODE = "theme_mode"
         const val KEY_EDITABLE_DAYS = "editable_days"
+        const val KEY_JOURNAL_LAYOUT = "journal_layout"
     }
 }

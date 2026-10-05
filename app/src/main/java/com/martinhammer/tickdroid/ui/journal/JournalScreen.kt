@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui.journal
 
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -7,10 +8,12 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -58,6 +61,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -77,6 +81,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.sync.SyncStatus
 import com.martinhammer.tickdroid.domain.Tick
@@ -86,20 +91,10 @@ import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
 import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
+import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Date
-
-private val DayLabelWidth = 92.dp
-private val CellGap = 6.dp
-private val RightPad = 16.dp
-private val MinCellSize = 28.dp
-private val MaxCellSize = 64.dp
-
-// Cap the screen width used for cell sizing so landscape doesn't blow cells out to MaxCellSize
-// (which would erase the half-cell peek and make the density setting a no-op). Beyond this
-// width the grid stays at its portrait-equivalent size and trailing whitespace fills the rest.
-private val GridSizingMaxWidth = 480.dp
 
 /**
  * Cell width sized so that exactly N cells are fully visible plus a half-cell peek,
@@ -128,6 +123,7 @@ fun JournalScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val compactHeight = LocalConfiguration.current.screenHeightDp < CompactHeightThresholdDp
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val scope = rememberCoroutineScope()
     var showHelp by remember { mutableStateOf(false) }
 
     // Refresh on resume so today rolls over (and pull catches changes from other devices).
@@ -167,16 +163,38 @@ fun JournalScreen(
         PullToRefreshBox(
             isRefreshing = state.syncStatus is SyncStatus.Syncing,
             onRefresh = { viewModel.refresh() },
+            // consumeWindowInsets: the Scaffold padding already covers system bars *and* the
+            // display cutout, so mark them consumed; otherwise the grids' own insets padding
+            // adds the cutout a second time (a wide empty strip beside the camera in landscape).
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .consumeWindowInsets(padding),
         ) {
-            JournalGrid(
-                state = state,
-                onLoadOlder = { viewModel.loadOlder() },
-                onToggleBoolean = viewModel::toggleBoolean,
-                onAdjustCounter = viewModel::adjustCounter,
-            )
+            when (state.layout) {
+                JournalLayout.DAYS_DOWN -> JournalGrid(
+                    state = state,
+                    onLoadOlder = { viewModel.loadOlder() },
+                    onToggleBoolean = viewModel::toggleBoolean,
+                    onAdjustCounter = viewModel::adjustCounter,
+                    // A programmatic scroll doesn't go through nested scroll, so the collapsed
+                    // LargeTopAppBar wouldn't notice the list is back at the top: expand it
+                    // explicitly. (Tracks down's chip pages sideways, so it has nothing to undo.)
+                    onJumpToToday = {
+                        scope.launch {
+                            val barState = scrollBehavior.state
+                            animate(barState.heightOffset, 0f) { value, _ -> barState.heightOffset = value }
+                            barState.contentOffset = 0f
+                        }
+                    },
+                )
+                JournalLayout.TRACKS_DOWN -> TracksDownGrid(
+                    state = state,
+                    onLoadOlder = { viewModel.loadOlder() },
+                    onToggleBoolean = viewModel::toggleBoolean,
+                    onAdjustCounter = viewModel::adjustCounter,
+                )
+            }
         }
     }
 
@@ -224,41 +242,51 @@ private fun HelpSheet(onDismiss: () -> Unit) {
     }
 }
 
+/**
+ * Loading / no-tracks / all-private placeholder shared by both journal layouts. Scrollable so
+ * pull-to-refresh still works on an otherwise empty screen.
+ */
+@Composable
+internal fun JournalEmptyState(state: JournalUiState) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .windowInsetsPadding(
+                WindowInsets.navigationBars
+                    .union(WindowInsets.displayCutout)
+                    .only(WindowInsetsSides.Horizontal)
+            )
+            .verticalScroll(rememberScrollState()),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!state.loaded) {
+            CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
+        } else {
+            val message = if (state.hasHiddenPrivateTracks) {
+                "All tracks are private. Enable \"Show private tracks\" in settings to show them."
+            } else {
+                "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server."
+            }
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(32.dp),
+            )
+        }
+    }
+}
+
 @Composable
 private fun JournalGrid(
     state: JournalUiState,
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onJumpToToday: () -> Unit,
 ) {
     val tracks = state.tracks
     if (tracks.isEmpty()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(
-                    WindowInsets.navigationBars
-                        .union(WindowInsets.displayCutout)
-                        .only(WindowInsetsSides.Horizontal)
-                )
-                .verticalScroll(rememberScrollState()),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (!state.loaded) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
-            } else {
-                val message = if (state.hasHiddenPrivateTracks) {
-                    "All tracks are private. Enable \"Show private tracks\" in settings to show them."
-                } else {
-                    "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server."
-                }
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(32.dp),
-                )
-            }
-        }
+        JournalEmptyState(state)
         return
     }
 
@@ -282,38 +310,56 @@ private fun JournalGrid(
         if (nearBottom) onLoadOlder()
     }
 
+    // Today is item 0; once its row has scrolled off, offer the jump back.
+    val awayFromToday by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 } }
+    val scope = rememberCoroutineScope()
+
     val cellSize = computeCellSize(state.density)
     val prefsMap = state.trackPrefs
 
-    Column(Modifier.fillMaxSize()) {
-        TrackHeader(tracks, prefsMap, gridScroll, cellSize)
-        HorizontalDivider()
-        LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-            items(items = days, key = { it.toEpochDay() }) { day ->
-                DayRow(
-                    day = day,
-                    today = state.window.today,
-                    tracks = tracks,
-                    prefsMap = prefsMap,
-                    ticks = state.ticks,
-                    gridScroll = gridScroll,
-                    cellSize = cellSize,
-                    editableDays = state.editableDays,
-                    onToggleBoolean = onToggleBoolean,
-                    onAdjustCounter = onAdjustCounter,
-                )
-            }
-            item {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            TrackHeader(tracks, prefsMap, gridScroll, cellSize)
+            HorizontalDivider()
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = ChipClearance),
+            ) {
+                items(items = days, key = { it.toEpochDay() }) { day ->
+                    DayRow(
+                        day = day,
+                        today = state.window.today,
+                        tracks = tracks,
+                        prefsMap = prefsMap,
+                        ticks = state.ticks,
+                        gridScroll = gridScroll,
+                        cellSize = cellSize,
+                        editableDays = state.editableDays,
+                        onToggleBoolean = onToggleBoolean,
+                        onAdjustCounter = onAdjustCounter,
+                    )
+                }
+                item {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(20.dp))
+                    }
                 }
             }
         }
+        JumpToTodayChip(
+            visible = awayFromToday,
+            onClick = {
+                scope.launch { listState.animateScrollToItem(0) }
+                onJumpToToday()
+            },
+            modifier = Modifier.align(Alignment.BottomEnd),
+        )
     }
 }
 
@@ -382,12 +428,7 @@ private fun DayRow(
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
 ) {
     val editable = editableDays.isEditable(day, today)
-    val locale = LocalConfiguration.current.locales[0]
-    val isWeekend = remember(day, locale) {
-        val cal = android.icu.util.Calendar.getInstance(locale)
-        cal.time = Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant())
-        cal.isWeekend
-    }
+    val isWeekend = rememberIsWeekend(day)
     val rowBg = if (isWeekend) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent
 
     Row(
@@ -422,6 +463,17 @@ private fun DayRow(
                 )
             }
         }
+    }
+}
+
+/** Locale-aware weekend test (e.g. Fri/Sat in some locales), shared by both journal layouts. */
+@Composable
+internal fun rememberIsWeekend(day: LocalDate): Boolean {
+    val locale = LocalConfiguration.current.locales[0]
+    return remember(day, locale) {
+        val cal = android.icu.util.Calendar.getInstance(locale)
+        cal.time = Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant())
+        cal.isWeekend
     }
 }
 

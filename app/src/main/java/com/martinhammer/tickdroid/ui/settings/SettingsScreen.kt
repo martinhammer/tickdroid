@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import com.martinhammer.tickdroid.data.prefs.EditableDays
 import com.martinhammer.tickdroid.data.prefs.GridDensity
+import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
@@ -98,6 +99,7 @@ fun AppSettingsScreen(
     val density by viewModel.gridDensity.collectAsStateWithLifecycle()
     val theme by viewModel.themeMode.collectAsStateWithLifecycle()
     val editableDays by viewModel.editableDays.collectAsStateWithLifecycle()
+    val journalLayout by viewModel.journalLayout.collectAsStateWithLifecycle()
     SettingsScaffold(title = "App settings", onBack = onBack) {
         ToggleRow(
             label = "Show private tracks",
@@ -108,6 +110,11 @@ fun AppSettingsScreen(
         EditableDaysSelector(
             current = editableDays,
             onSelect = viewModel::setEditableDays,
+        )
+        Spacer(Modifier.height(24.dp))
+        JournalLayoutSelector(
+            current = journalLayout,
+            onSelect = viewModel::setJournalLayout,
         )
         Spacer(Modifier.height(24.dp))
         DensitySelector(
@@ -150,6 +157,35 @@ private fun GridDensity.displayLabel(): String = when (this) {
     GridDensity.LOW -> "Low"
     GridDensity.MEDIUM -> "Medium"
     GridDensity.HIGH -> "High"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun JournalLayoutSelector(current: JournalLayout, onSelect: (JournalLayout) -> Unit) {
+    Column {
+        Text(
+            text = "Journal layout",
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        Spacer(Modifier.height(12.dp))
+        val options = JournalLayout.values()
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth()) {
+            options.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = current == option,
+                    onClick = { onSelect(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                ) {
+                    Text(option.displayLabel())
+                }
+            }
+        }
+    }
+}
+
+private fun JournalLayout.displayLabel(): String = when (this) {
+    JournalLayout.DAYS_DOWN -> "Days down"
+    JournalLayout.TRACKS_DOWN -> "Tracks down"
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
