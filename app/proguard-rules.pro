@@ -27,3 +27,9 @@
 # the class name in the click intent. Glance's consumer rule keeps the classes but, under R8 full
 # mode, not their no-arg constructors, so every widget tap would silently fail in release builds.
 -keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }
+
+# Glance finds a widget's ids by the class name of its GlanceAppWidget (provider.canonicalName in
+# GlanceAppWidgetManager.getGlanceIds). R8 merged our three widget classes into one, so all three
+# got the same name: updateAll() on one kind then also redrew the other kinds' widgets with its
+# own UI (a list showing the Single track's "Choose track"). Keep them distinct and named.
+-keep class * extends androidx.glance.appwidget.GlanceAppWidget

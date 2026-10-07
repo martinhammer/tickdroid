@@ -1,8 +1,11 @@
 package com.martinhammer.tickdroid.widget
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.util.Log
-import androidx.glance.appwidget.updateAll
+import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
@@ -128,16 +131,38 @@ class WidgetRefresher @Inject constructor(
     suspend fun refreshNow() = updateAllWidgets(context)
 }
 
-/** Redraw every placed widget of every kind. Does nothing when none are placed. */
+/**
+ * Redraw every placed widget of every kind. Does nothing when none are placed.
+ *
+ * Ids come from each kind's manifest receiver, not Glance's `updateAll`. That looks ids up by the
+ * GlanceAppWidget's class name, through a mapping Glance caches on disk; when R8 merged our three
+ * widget classes into one (fixed by a keep rule in proguard-rules.pro), every kind's updateAll
+ * also hit the other kinds' widgets and drew its own UI into them. The receivers are the source
+ * of truth for which widget is which, so this can't cross kinds whatever R8 or that cache do.
+ */
 internal suspend fun updateAllWidgets(context: Context) {
-    try {
-        SingleTrackWidget().updateAll(context)
-        TodayListWidget().updateAll(context)
-        TodayRowWidget().updateAll(context)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        // A failed redraw leaves the old picture up; the next change tries again.
-        Log.w("WidgetRefresher", "widget update failed", e)
+    val appWidgetManager = AppWidgetManager.getInstance(context)
+    val glanceManager = GlanceAppWidgetManager(context)
+    for ((receiver, widget) in WidgetKinds.all) {
+        for (appWidgetId in appWidgetManager.getAppWidgetIds(ComponentName(context, receiver))) {
+            try {
+                widget.update(context, glanceManager.getGlanceIdBy(appWidgetId))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A failed redraw leaves the old picture up; the next change tries again.
+                Log.w("WidgetRefresher", "update failed for widget $appWidgetId", e)
+            }
+        }
     }
+}
+
+/** Each widget kind's receiver and the GlanceAppWidget that draws it. */
+internal object WidgetKinds {
+    val all: List<Pair<Class<out TickdroidWidgetReceiver>, GlanceAppWidget>>
+        get() = listOf(
+            SingleTrackWidgetReceiver::class.java to SingleTrackWidget(),
+            TodayListWidgetReceiver::class.java to TodayListWidget(),
+            TodayRowWidgetReceiver::class.java to TodayRowWidget(),
+        )
 }

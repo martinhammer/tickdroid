@@ -29,15 +29,11 @@ internal fun nextRolloverMillis(now: ZonedDateTime): Long =
 internal object WidgetRollover {
     const val ACTION_ROLLOVER = "com.martinhammer.tickdroid.widget.ROLLOVER"
 
-    private val receivers = listOf(
-        SingleTrackWidgetReceiver::class.java,
-        TodayListWidgetReceiver::class.java,
-        TodayRowWidgetReceiver::class.java,
-    )
-
     fun hasAnyWidgets(context: Context): Boolean {
         val manager = AppWidgetManager.getInstance(context)
-        return receivers.any { manager.getAppWidgetIds(ComponentName(context, it)).isNotEmpty() }
+        return WidgetKinds.all.any { (receiver, _) ->
+            manager.getAppWidgetIds(ComponentName(context, receiver)).isNotEmpty()
+        }
     }
 
     /** Arm the alarm while any widget is placed; cancel it once none are. */
