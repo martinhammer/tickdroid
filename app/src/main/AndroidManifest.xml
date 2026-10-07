@@ -35,6 +35,68 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- Home-screen widgets (Glance). Not exported: only the system's AppWidget service sends
+             APPWIDGET_UPDATE, and it can reach non-exported receivers. -->
+        <receiver
+            android:name=".widget.SingleTrackWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_button_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_single_track_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.TodayListWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_list_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_today_list_info" />
+        </receiver>
+        <receiver
+            android:name=".widget.TodayRowWidgetReceiver"
+            android:exported="false"
+            android:label="@string/widget_row_label">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_today_row_info" />
+        </receiver>
+
+        <!-- Redraws widgets for a new day: our own midnight alarm (sent with an explicit
+             component), plus clock and time-zone changes. Exported because the system
+             broadcasts require it; all it does is redraw and re-arm, so a spoofed broadcast is
+             harmless. -->
+        <receiver
+            android:name=".widget.WidgetRolloverReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Widget setup. Exported because the launcher starts it. Its own task (empty affinity):
+             in the app's task, finishing it after Save surfaced the journal instead of returning
+             to the home screen. -->
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Tickdroid">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

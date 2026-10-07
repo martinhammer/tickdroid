@@ -28,6 +28,7 @@ import java.time.LocalDate
 import javax.net.ssl.SSLException
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 /** Categorization of sync failures. The UI combines this with the device's online state. */
 enum class SyncErrorKind {
@@ -113,6 +114,7 @@ class SyncManager @Inject constructor(
 
     suspend fun pull(from: LocalDate, to: LocalDate) = withContext(Dispatchers.IO) {
         if (authRepository.state.value !is AuthState.SignedIn) return@withContext
+        val before = _status.value
         _status.value = SyncStatus.Syncing
         try {
             mutex.withLock {
@@ -134,6 +136,12 @@ class SyncManager @Inject constructor(
             _status.value = SyncStatus.Error(SyncErrorKind.ServerUnreachable, e.message)
         } catch (e: retrofit2.HttpException) {
             _status.value = SyncStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}")
+        } catch (e: CancellationException) {
+            // A cancelled pull (PushWorker stopped by WorkManager, say) must not leave the
+            // status at Syncing for good: the journal's spinner and the widgets' faded refresh
+            // icon would never clear. It learned nothing, so put back what we knew before it.
+            _status.value = before.takeUnless { it is SyncStatus.Syncing } ?: SyncStatus.Idle
+            throw e
         }
     }
 

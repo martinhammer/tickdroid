@@ -19,6 +19,7 @@ import dagger.assisted.AssistedInject
 import retrofit2.HttpException
 import java.io.IOException
 import javax.net.ssl.SSLException
+import kotlin.coroutines.cancellation.CancellationException
 
 /**
  * Drains every dirty tick row to the server. Boolean ticks use the spec's replay-safe
@@ -71,25 +72,36 @@ class PushWorker @AssistedInject constructor(
             return Result.success()
         }
 
+        val before = syncManager.pushStatus.value
         syncManager.reportPushStatus(PushStatus.Pushing)
-        for (entity in dirty) {
-            try {
-                pushOne(entity)
-            } catch (e: HttpException) {
-                if (e.code() == 401) {
-                    authRepository.signOut()
-                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "Session expired"))
-                    return Result.failure()
+        try {
+            for (entity in dirty) {
+                try {
+                    pushOne(entity)
+                } catch (e: HttpException) {
+                    if (e.code() == 401) {
+                        authRepository.signOut()
+                        syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "Session expired"))
+                        return Result.failure()
+                    }
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
+                    return Result.retry()
+                } catch (e: SSLException) {
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.UntrustedCertificate, e.message))
+                    return Result.retry()
+                } catch (e: IOException) {
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))
+                    return Result.retry()
                 }
-                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
-                return Result.retry()
-            } catch (e: SSLException) {
-                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.UntrustedCertificate, e.message))
-                return Result.retry()
-            } catch (e: IOException) {
-                syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))
-                return Result.retry()
             }
+        } catch (e: CancellationException) {
+            // Stopped mid-push: WorkManager cancels the worker when JobScheduler drops it, e.g.
+            // because the network lost validation. None of the catches above see that, so the
+            // status stayed Pushing for good: the journal's chip vanished and the widgets showed
+            // a dead "syncing" icon instead of the offline symbol. An interrupted attempt says
+            // nothing new about the server, so put back what we knew before it.
+            syncManager.reportPushStatus(before.takeUnless { it is PushStatus.Pushing } ?: PushStatus.Idle)
+            throw e
         }
         syncManager.reportPushStatus(PushStatus.Idle)
         return Result.success()

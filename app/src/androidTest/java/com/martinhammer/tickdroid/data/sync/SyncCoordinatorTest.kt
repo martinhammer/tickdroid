@@ -12,6 +12,8 @@ import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.widget.WidgetConfig
+import com.martinhammer.tickdroid.widget.WidgetConfigStore
 import io.mockk.mockk
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
@@ -26,6 +28,7 @@ class SyncCoordinatorTest {
     private lateinit var context: Context
     private lateinit var db: TickdroidDatabase
     private lateinit var prefs: UiPreferences
+    private lateinit var widgetStore: WidgetConfigStore
     private lateinit var store: CredentialStore
     private lateinit var auth: AuthRepository
     private lateinit var scheduler: RecordingScheduler
@@ -38,6 +41,7 @@ class SyncCoordinatorTest {
         context.deleteDatabase(TickdroidDatabase.NAME)
         db = Room.databaseBuilder(context, TickdroidDatabase::class.java, TickdroidDatabase.NAME).build()
         prefs = UiPreferences(context).also { it.clear() }
+        widgetStore = WidgetConfigStore(context).also { it.clear() }
         store = CredentialStore(context).also { it.clear() }
         auth = AuthRepository(store)
         scheduler = RecordingScheduler(context)
@@ -51,7 +55,7 @@ class SyncCoordinatorTest {
             trackPrefsDao = db.trackPrefsDao(),
             authRepository = auth,
         )
-        coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs)
+        coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs, widgetStore)
         coordinator.start()
     }
 
@@ -61,6 +65,7 @@ class SyncCoordinatorTest {
         context.deleteDatabase(TickdroidDatabase.NAME)
         store.clear()
         prefs.clear()
+        widgetStore.clear()
     }
 
     @Test fun signIn_schedulesPushAndPeriodic() = runTest {
@@ -113,6 +118,7 @@ class SyncCoordinatorTest {
         )
         prefs.setGridDensity(GridDensity.HIGH)
         assertEquals(GridDensity.HIGH, prefs.gridDensity.value)
+        widgetStore.put(42, WidgetConfig.Button(trackServerId = 1L))
 
         auth.signOut()
 
@@ -120,7 +126,8 @@ class SyncCoordinatorTest {
         // → prefs.clear all execute sequentially. Watch the last side-effect (prefs reset).
         waitFor {
             scheduler.cancelAllCalls > cancelBaseline &&
-                prefs.gridDensity.value == GridDensity.Default
+                prefs.gridDensity.value == GridDensity.Default &&
+                widgetStore.get(42) == null
         }
 
         assertTrue("tracks should be wiped on sign-out", db.trackDao().getAll().isEmpty())

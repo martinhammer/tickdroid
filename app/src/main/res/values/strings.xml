@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">Tickdroid</string>
+
+    <!-- Widget picker. The platform reads these from resources; the rest of the app's strings are
+         still inline until the localisation step. -->
+    <string name="widget_button_label">Single track</string>
+    <string name="widget_button_description">One track, ticked with a single tap</string>
+    <string name="widget_list_label">Today (list)</string>
+    <string name="widget_list_description">Today\'s tracks as a list</string>
+    <string name="widget_row_label">Today (row)</string>
+    <string name="widget_row_description">Today\'s tracks in one row</string>
 </resources>

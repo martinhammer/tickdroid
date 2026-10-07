@@ -13,4 +13,8 @@ class TrackRepository @Inject constructor(
 ) {
     fun observeTracks(): Flow<List<Track>> =
         trackDao.observeAll().map { list -> list.map { it.toDomain() } }
+
+    /** The live track with this server id, or null if there is none (or it is pending deletion). */
+    suspend fun findByServerId(serverId: Long): Track? =
+        trackDao.findByServerId(serverId)?.takeUnless { it.deleted }?.toDomain()
 }

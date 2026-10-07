@@ -23,3 +23,7 @@
 # Tink (transitive via androidx.security:security-crypto) references
 # errorprone annotations that aren't on the runtime classpath.
 -dontwarn com.google.errorprone.annotations.**
+# Glance creates widget tap callbacks by reflection (getDeclaredConstructor().newInstance()) from
+# the class name in the click intent. Glance's consumer rule keeps the classes but, under R8 full
+# mode, not their no-arg constructors, so every widget tap would silently fail in release builds.
+-keep class * implements androidx.glance.appwidget.action.ActionCallback { <init>(); }

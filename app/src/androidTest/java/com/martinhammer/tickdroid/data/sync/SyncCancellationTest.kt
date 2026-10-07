@@ -9,6 +9,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import okhttp3.mockwebserver.MockResponse
+import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.yield
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -103,5 +105,22 @@ class SyncCancellationTest {
             rig.db.trackDao().getAll().mapNotNull { it.serverId }.toSet(),
         )
         assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+    }
+
+    @Test fun cancelledPull_restoresThePreviousStatus() = runBlocking {
+        // Regression: a cancelled pull left the status at Syncing for good, so the journal's
+        // spinner and the widgets' faded refresh icon never cleared.
+        rig.enqueueStatus(500)
+        rig.syncManager.pull(from, to)
+        val before = rig.syncManager.status.value
+        assertTrue("setup: expected an error, got $before", before is SyncStatus.Error)
+
+        rig.server.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
+        val job = launch(Dispatchers.IO) { rig.syncManager.pull(from, to) }
+        withTimeout(5_000) { while (rig.syncManager.status.value !is SyncStatus.Syncing) delay(10) }
+        job.cancel()
+        job.join()
+
+        assertEquals(before, rig.syncManager.status.value)
     }
 }

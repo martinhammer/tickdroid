@@ -8,7 +8,14 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.time.Clock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import okhttp3.mockwebserver.MockResponse
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -244,5 +251,28 @@ class PushWorkerTest {
         val row = rig.db.tickDao().find(trackId, today.toString())!!
         assertTrue("row remains dirty for retry", row.dirty)
         assertNotNull(row)
+    }
+
+    @Test fun cancelledMidPush_restoresThePreviousStatus() = runBlocking {
+        // Regression: JobScheduler stops the worker when the network loses validation, which
+        // cancels doWork. The status used to stay Pushing for good, hiding the journal's chip and
+        // leaving the widgets on a dead "syncing" icon instead of the offline symbol.
+        val trackId = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = null, trackLocalId = trackId, date = today.toString(), value = 1, dirty = true),
+        )
+        val before = PushStatus.Error(SyncErrorKind.ServerUnreachable, "earlier attempt")
+        rig.syncManager.reportPushStatus(before)
+        // A response that never arrives in time, so the push is in flight when we cancel.
+        rig.server.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
+
+        val worker = buildWorker()
+        val job = launch(Dispatchers.IO) { worker.doWork() }
+        withTimeout(5_000) { while (rig.syncManager.pushStatus.value !is PushStatus.Pushing) delay(10) }
+        job.cancel()
+        job.join()
+
+        assertEquals(before, rig.syncManager.pushStatus.value)
+        assertTrue("the tick must still be waiting to go up", rig.db.tickDao().getDirty().isNotEmpty())
     }
 }
