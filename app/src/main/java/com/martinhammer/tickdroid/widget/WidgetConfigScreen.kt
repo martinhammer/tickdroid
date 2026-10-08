@@ -155,11 +155,13 @@ private fun TrackChoiceList(
     chosenServerId: Long?,
     onChoose: (Long) -> Unit,
 ) {
-    if (tracks.isEmpty()) {
-        Box(modifier = modifier, contentAlignment = Alignment.Center) { NoTracksMessage() }
-        return
-    }
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) {
+        item(key = "hint") {
+            SetupHint("Choose the track for this widget. $PrivateTracksHint")
+        }
+        if (tracks.isEmpty()) {
+            item(key = "empty") { NoTracksMessage() }
+        }
         items(items = tracks, key = { it.track.localId }) { item ->
             val serverId = item.track.serverId!!
             TrackRow(item = item, onClick = { onChoose(serverId) }) {
@@ -209,18 +211,12 @@ private fun TrackSwitchList(
             }
         }
         item(key = "hint") {
-            Text(
-                text = if (kind == WidgetKind.TodayRow) {
-                    "Choose the tracks to show. New tracks appear automatically. " +
-                        "Tracks that don't fit the widget's width are left out."
+            SetupHint(
+                if (kind == WidgetKind.TodayRow) {
+                    "$SelectionHint Tracks that don't fit the widget's width are left out."
                 } else {
-                    "Choose the tracks to show. New tracks appear automatically."
-                },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .widthIn(max = MaxContentWidth)
-                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                    SelectionHint
+                }
             )
         }
         if (state.tracks.isEmpty()) {
@@ -232,6 +228,32 @@ private fun TrackSwitchList(
                 Switch(checked = item.shown, onCheckedChange = { onShown(serverId, it) })
             }
         }
+    }
+}
+
+private const val PrivateTracksHint = "Private tracks never appear on widgets."
+private const val SelectionHint =
+    "Choose the tracks to show. New tracks appear automatically. $PrivateTracksHint"
+
+/** The hint under a setup screen's top controls, plus the line every setup screen shares. */
+@Composable
+private fun SetupHint(hint: String) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = MaxContentWidth)
+            .padding(horizontal = 24.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = hint,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Widgets can only increment a counter; to lower it, use the app.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
