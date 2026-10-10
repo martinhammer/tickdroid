@@ -148,6 +148,10 @@ dependencies {
     implementation(libs.androidx.glance.appwidget)
     implementation(libs.androidx.glance.material3)
 
+    // Track management
+    implementation(libs.reorderable)
+    implementation(libs.androidx.emoji2.emojipicker)
+
     // Test
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
