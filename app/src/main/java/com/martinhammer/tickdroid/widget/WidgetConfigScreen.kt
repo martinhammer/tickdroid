@@ -140,7 +140,7 @@ private fun SignedOutMessage(modifier: Modifier, onOpenApp: () -> Unit) {
 @Composable
 private fun NoTracksMessage() {
     Text(
-        "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server.",
+        "No tracks yet. Add tracks in Tickdroid's Tracks settings.",
         style = MaterialTheme.typography.bodyMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(32.dp),

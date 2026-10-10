@@ -45,14 +45,6 @@ class TrackPrefsRepositoryTest {
         assertNull(db.trackPrefsDao().findByServerId(7L))
     }
 
-    @Test fun reset_deletesRow() = runTest {
-        repo.setColorKey(7L, "blue")
-
-        repo.reset(7L)
-
-        assertNull(db.trackPrefsDao().findByServerId(7L))
-    }
-
     @Test fun observeAll_emitsKeyedMap() = runTest {
         repo.observeAll().test {
             assertEquals(emptyMap<Long, Any>(), awaitItem())

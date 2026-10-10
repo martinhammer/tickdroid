@@ -37,8 +37,4 @@ class TrackPrefsRepository @Inject constructor(
             dao.upsert(merged)
         }
     }
-
-    suspend fun reset(serverId: Long) {
-        dao.deleteByServerId(serverId)
-    }
 }

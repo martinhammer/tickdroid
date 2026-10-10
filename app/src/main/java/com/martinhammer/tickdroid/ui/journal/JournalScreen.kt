@@ -220,7 +220,7 @@ private fun HelpSheet(onDismiss: () -> Unit) {
             Text("How to use Tickdroid", style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(12.dp))
             Text(
-                "Tracks are defined in Tickbuddy on Nextcloud.",
+                "Add and manage tracks in Tracks settings. They're shared with Tickbuddy on your Nextcloud.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(12.dp))
@@ -265,7 +265,7 @@ internal fun JournalEmptyState(state: JournalUiState) {
             val message = if (state.hasHiddenPrivateTracks) {
                 "All tracks are private. Enable \"Show private tracks\" in settings to show them."
             } else {
-                "No tracks defined yet. Create and manage tracks in Tickbuddy on your Nextcloud server."
+                "No tracks yet. Add one in Tracks settings."
             }
             Text(
                 message,

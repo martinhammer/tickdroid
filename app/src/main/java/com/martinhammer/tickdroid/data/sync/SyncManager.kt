@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -144,6 +145,48 @@ class SyncManager @Inject constructor(
             throw e
         }
     }
+
+    /**
+     * Runs a track change (create, rename, privacy, reorder, delete) against the server under the
+     * sync lock, then re-reads the track list into Room under the same hold, so a pull can never
+     * reconcile half-way through a change. Track changes are online only: there is no queue.
+     *
+     * Runs on this class's application scope, like [schedulePull]: a ViewModel cancelled
+     * mid-change (Back pressed while saving) must not cancel a Room transaction (see
+     * schedulePull's note). The caller just awaits the result.
+     *
+     * Doesn't call [pull] for the re-read: it takes [mutex] itself and `Mutex` isn't reentrant.
+     * Only tracks are re-read; a track change never changes ticks on the server, except delete,
+     * whose local ticks go with the track through the `ON DELETE CASCADE` foreign key.
+     *
+     * Leaves [status] / [pushStatus] alone: a track change is not a sync, and the journal's chip
+     * and spinner shouldn't react to it.
+     */
+    suspend fun <T> changeTracks(change: suspend (TickbuddyApi) -> T): T = scope.async {
+        mutex.withLock {
+            val outcome = try {
+                Result.success(change(api))
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            // The server's answer decides: re-read even after a failure (a timed-out create may
+            // have landed). A failed re-read never hides the change's own outcome; Room is then
+            // stale until the next pull (journal resume, pull-to-refresh, the 15-minute worker).
+            // Skipped after a 401 sign-out: there are no credentials left to read with.
+            if (authRepository.state.value is AuthState.SignedIn) {
+                try {
+                    val tracks = api.getTracks().ocs.data
+                    withContext(NonCancellable) { db.withTransaction { reconcileTracks(tracks) } }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+            outcome.getOrThrow()
+        }
+    }.await()
 
     private suspend fun reconcileTracks(remote: List<TrackDto>) {
         val local = trackDao.getAll().associateBy { it.serverId }
