@@ -17,24 +17,24 @@ Some of the key features which already exist:
 * System / light / dark theme setting
 * Setting for main screen layout: days down versus tracks down
 * Setting for grid density, i.e. size of the cells
-* Custom colours and emoji icons for tracks
+* Add / remove / rename / toggle private / reorder tracks (changes sync with Tickbuddy)
+* Custom colours and emoji icons for tracks (for phone only)
 * Landscape mode is handled gracefully
+* Three types of homepage widgets
 
 Planned features:
-* Android widget
-* Add / remove / rename tracks from Tickdroid
 * Per-track statistics and visualisations
 * Tracking of goals
-* Localisation 
+* Localisation
 * ...and more once these goals are achieved
 
 ### Motivation
 
-This is a personal hobby project which I am using to learn about Nextcloud and Android app development and AI-assisted development. Significant portion of the code has been written by Claude Code. 
+This is a personal hobby project which I am using to learn about Nextcloud and Android app development and AI-assisted development. Significant portion of the code has been written by Claude Code.
 
 Tickbuddy and Tickdroid were originally inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/), which I had been using for a number of years. However, there isn't any active development of the app and I wanted something with a server back-end, ideally on Nextcloud.
 
-At the time of starting this project there is no equivalent app in the Nextcloud ecosystem, and the Tickmate Android application is no longer actively maintained. I am now actively using Tickbuddy and Tickdroid for my personal tracking, and would be happy if others find it useful.
+At the time of starting this project there is no equivalent app in the Nextcloud ecosystem, and the Tickmate Android application is no longer actively maintained. I am actively using Tickbuddy and Tickdroid for my personal tracking, and would be happy if others find it useful.
 
 ### Found a bug? Do you have a suggestion?
 
@@ -58,6 +58,12 @@ App settings screen
 
 <img src="screenshots/Settings_20261005_01.png" alt="Screenshot of app settings screen" width="50%">
 
-Track settings screen - assigning a custom colour and emoji icon
+Track settings screens - list and an individual track
 
-<img src="screenshots/Settings_20261005_02.png" alt="Screenshot of track settings screen" width="50%">
+<img src="screenshots/Tracks_20261011_01.png" alt="Screenshot of track settings screen" width="50%">
+
+<img src="screenshots/Tracks_20261011_02.png" alt="Screenshot of track settings screen" width="50%">
+
+Home screen with widgets
+
+<img src="screenshots/Widgets_20261011_01.png" alt="Screenshot of track settings screen" width="50%">
