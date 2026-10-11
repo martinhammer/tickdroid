@@ -7,6 +7,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -35,9 +36,17 @@ open class SyncScheduler @Inject constructor(
      * Enqueue a one-off push attempt. If a worker is already running we append a follow-up
      * (so writes made during a drain still get pushed); a pending-but-not-started worker is
      * replaced to coalesce bursts.
+     *
+     * Expedited: on battery, JobScheduler holds back ordinary network jobs (on a Samsung S23,
+     * Android 16, it waits on mobile data until three are ready, for up to 4 minutes) and
+     * defers them in Doze. Once the app is frozen this job is the only thing that wakes it
+     * when the network comes back, so a held-back push left the widgets' offline symbol up
+     * long after the device was online. Expedited jobs skip that batching and Doze; past their
+     * quota this runs as ordinary work.
      */
     open fun schedulePushNow() {
         val request = OneTimeWorkRequestBuilder<PushWorker>()
+            .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
             .setConstraints(networkConstraint)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
