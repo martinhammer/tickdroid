@@ -1,0 +1,4 @@
+Added dashboard widgets: list, row, button (martinhammer/tickdroid#43).
+Track management: add / remove / rename / toggle private / reorder tracks (martinhammer/tickdroid#47).
+Updated track list and track settings screens.
+Various visual and text consistency updates.
