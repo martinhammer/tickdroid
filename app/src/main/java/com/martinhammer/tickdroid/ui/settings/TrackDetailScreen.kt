@@ -296,8 +296,8 @@ internal fun TrackDetailContent(
         }
         Spacer(Modifier.height(24.dp))
 
-        SectionLabel(label = "Custom color")
-        Spacer(Modifier.height(8.dp))
+        SectionLabel(label = "Custom colour", subtitle = "Set custom track colour. Scroll for more options.")
+        Spacer(Modifier.height(12.dp))
         ColorPicker(
             selected = TrackColor.fromKey(prefs.colorKey),
             enabled = !unsynced,
@@ -306,8 +306,8 @@ internal fun TrackDetailContent(
         )
         Spacer(Modifier.height(24.dp))
 
-        SectionLabel(label = "Icon")
-        Spacer(Modifier.height(8.dp))
+        SectionLabel(label = "Icon", subtitle = "Set icon for the track. Scroll for presets or select your own.")
+        Spacer(Modifier.height(12.dp))
         TrackIconRow(
             trackName = track.name,
             current = prefs.emoji,
@@ -315,7 +315,7 @@ internal fun TrackDetailContent(
             onSelect = onEmojiChange,
             onMore = onMoreEmojis,
         )
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(48.dp))
 
         // Styled like Account's "Log out".
         OfflineGuard(

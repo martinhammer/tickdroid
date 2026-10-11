@@ -203,7 +203,13 @@ private fun TrackSwitchList(
                                 onClick = { onLabels(option) },
                                 shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
                             ) {
-                                Text(option.name)
+                                // Display text only: the enum name is what WidgetConfigStore saves.
+                                Text(
+                                    when (option) {
+                                        TrackLabels.Full -> "Full"
+                                        TrackLabels.Short -> "Icon"
+                                    },
+                                )
                             }
                         }
                     }

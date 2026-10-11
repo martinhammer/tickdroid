@@ -234,7 +234,7 @@ private fun HelpSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "Custom track colors and heading icons can be configured in Tracks settings.",
+                "Custom track colours and heading icons can be configured in Tracks settings.",
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
