@@ -90,7 +90,6 @@ import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
-import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -398,7 +397,6 @@ private fun TrackHeader(
                             Text(
                                 text = prefs.emoji,
                                 style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.desaturatedEmoji(),
                             )
                         } else {
                             Text(

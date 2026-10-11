@@ -28,7 +28,6 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 
 internal val IconCircleSize = 48.dp
 internal val IconCircleGap = 12.dp
@@ -97,7 +96,6 @@ internal fun TrackIconRow(
                     Text(
                         text = choice.emoji,
                         style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.desaturatedEmoji(),
                     )
                 }
             }

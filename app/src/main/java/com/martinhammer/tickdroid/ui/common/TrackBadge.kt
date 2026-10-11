@@ -16,7 +16,7 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 
-/** 40dp circle in the track's colour, showing its emoji (desaturated) or two-letter abbreviation. */
+/** 40dp circle in the track's colour, showing its emoji or two-letter abbreviation. */
 @Composable
 internal fun TrackBadge(track: Track, prefs: TrackPrefs) {
     val customColor = TrackColor.fromKey(prefs.colorKey)
@@ -33,7 +33,6 @@ internal fun TrackBadge(track: Track, prefs: TrackPrefs) {
             Text(
                 text = prefs.emoji,
                 style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.desaturatedEmoji(),
             )
         } else {
             Text(

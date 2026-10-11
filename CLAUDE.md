@@ -76,7 +76,7 @@ com.martinhammer.tickdroid
 ├── ui
 │   ├── about        // AboutScreen
 │   ├── auth         // AuthScreen, AuthViewModel (with help bottom sheet)
-│   ├── common       // EmojiRender (desaturatedEmoji modifier), Dimens (MaxContentWidth, CompactHeightThresholdDp), TrackBadge (shared by Tracks settings and widget setup)
+│   ├── common       // Dimens (MaxContentWidth, CompactHeightThresholdDp), TrackBadge (shared by Tracks settings and widget setup)
 │   ├── journal      // JournalScreen, JournalViewModel (with help bottom sheet), JumpToTodayChip, TracksDownGrid + TracksDownLayout (pure maths), JournalDimens (shared grid constants)
 │   ├── settings     // SettingsScreen (Account, App), TracksSettingsScreen (+ NewTrackSheet), TrackDetailScreen (+ TrackDialogs, TrackIconRow, EmojiPickerSheet), TracksHelpSheet, SettingsRows (ToggleRow, SectionLabel), OfflineGuard, ScrollableRowFade, pure TrackOrder / IconChoices, and the ViewModels
 │   ├── theme        // Material You / dynamic color
@@ -146,7 +146,7 @@ Implements `mobile_instructions.md` §4 with a few concrete tweaks captured belo
 Modern reinterpretation of Tickmate's grid.
 
 - **Top bar**: collapsing `LargeTopAppBar` with `exitUntilCollapsedScrollBehavior`; swaps to a small `TopAppBar` when `screenHeightDp < CompactHeightThresholdDp` (landscape phones). Actions: `SyncIssueChip` (when relevant) → `SyncIndicator` (spinner during pull) → `?` help icon (opens a placeholder `ModalBottomSheet`) → overflow menu (Account / App settings / Tracks settings / About).
-- **Sticky header row**: track headers as columns, horizontally scrollable. Track label is the per-track emoji (rendered desaturated, `titleLarge`) when set, otherwise the 2-letter abbreviation.
+- **Sticky header row**: track headers as columns, horizontally scrollable. Track label is the per-track emoji (full colour, `titleLarge`) when set, otherwise the 2-letter abbreviation.
 - **Body**: vertical `LazyColumn` of day rows, newest at top. Day-label width 92dp, single-line. Subtitle uses `android.text.format.DateFormat.getDateFormat(context)` so it follows the user's Settings → System → Date format. Weekend rows tinted with `surfaceContainerLow`; weekend detection uses `android.icu.util.Calendar.isWeekend` (locale-aware).
 - **Cells**:
   - Cell width derived from `GridDensity` (Low=5 / Medium=7 / High=9 visible) with a half-cell peek when there are more tracks than fit, plus a 16dp right inset. Cell size clamped to [28, 64] dp.
@@ -213,7 +213,7 @@ Three Glance widgets in package `widget`, all ticking **today only** (whatever E
 - **Setup runs in its own task.** `WidgetConfigActivity` has `android:taskAffinity=""` (plus `excludeFromRecents`). With the app's default affinity, ✎ → Save finished it back into Tickdroid's task and surfaced the journal instead of the home screen. Its "Open Tickdroid" button therefore starts `MainActivity` with `FLAG_ACTIVITY_NEW_TASK`, so the journal lands in the app's own task.
 - **"Add widget" vs "Save" in setup** is not "is a setup stored?": a placed widget can have none (sign-out clears every widget's choices but keeps the widgets), and its first ✎ then read "Add widget". Intents from a placed widget (`configIntent`: ✎, "Choose tracks", "Choose track") carry `EXTRA_FROM_WIDGET`; setup reads "Save" if that is set **or** a setup is stored, so only the launcher placing a new widget gets "Add widget". Covered by `WidgetConfigViewModelTest`.
 - **Sync slot** (list header, Today row): faded ⟳ with no action while syncing, else the cloud-off symbol in ⟳'s place while unsent ticks can't go up, else ⟳. The Single track's corner badge uses the same rule (`badge.slot == SyncSlot.Offline`, so it also hides while syncing); all three kinds must agree on when the symbol shows. Both ⟳ and the symbol run `RefreshAction` → `SyncScheduler.schedulePushNow()` (the existing push-then-pull worker), never a pull from the broadcast.
-- **Colours**: `GlanceTheme` defaults (live Material You system colours) except the empty cell, which is the journal's `surfaceContainerHighest` read from `dynamicLight/DarkColorScheme` — Glance's colour set has no such role. That one colour is fixed at draw time, so after a wallpaper change it catches up on the next redraw. Emoji are full colour (RemoteViews can't filter text like `desaturatedEmoji`).
+- **Colours**: `GlanceTheme` defaults (live Material You system colours) except the empty cell, which is the journal's `surfaceContainerHighest` read from `dynamicLight/DarkColorScheme` — Glance's colour set has no such role. That one colour is fixed at draw time, so after a wallpaper change it catches up on the next redraw. Emoji are full colour, as in the app.
 - **RemoteViews limits**: containers take at most 10 children (Glance silently drops the rest), so Today row columns go in nested `Row`s of 8. No SemiBold and no `tnum` in RemoteViews text; cells use Medium.
 - **Tests**: pure maths/models on the JVM (`WidgetModelsTest`, `WidgetRolloverTest`, `WidgetConfigCodecTest`, `WidgetTickHandlerTest`); Glance node tests per kind (`runGlanceAppWidgetUnitTest`); `WidgetRemoteViewsTest`, which runs every state through Glance's real RemoteViews translation (`GlanceAppWidget.compose`) and inflates it — flip its `DUMP` flag to write PNGs for a visual check. Inflate under an `AppWidgetHostView`: the platform only installs collection adapters (the list's rows) under one, so a plain `FrameLayout` silently renders an empty list. `WidgetTickHandlerIntegrationTest` proves a widget tap leaves a dirty row and schedules one push.
 
@@ -249,7 +249,7 @@ Three Glance widgets in package `widget`, all ticking **today only** (whatever E
 16. ✅ Infinite scroll older history (30-day windows) + range-aware pulls.
 17. ✅ Sync status indicator + error chip in top bar.
 18. ✅ Settings screens (Account / App / Tracks + per-track editor).
-19. ✅ Per-track customization (color from a 10-swatch palette, emoji rendered desaturated).
+19. ✅ Per-track customization (color from a 10-swatch palette, emoji; first rendered desaturated, now full colour everywhere).
 20. ✅ Editable-days policy + locked-cell Toast.
 21. ✅ Theme picker (system/light/dark).
 22. ✅ App icon (Nextcloud logo).

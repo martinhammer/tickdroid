@@ -67,7 +67,6 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
-import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -373,7 +372,6 @@ private fun PreviewBadge(track: Track, prefs: TrackPrefs) {
             Text(
                 text = prefs.emoji,
                 style = MaterialTheme.typography.headlineSmall,
-                modifier = Modifier.desaturatedEmoji(),
             )
         } else {
             Text(

@@ -59,7 +59,6 @@ import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
-import com.martinhammer.tickdroid.ui.common.desaturatedEmoji
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -383,7 +382,6 @@ private fun TrackLabel(track: Track, prefs: TrackPrefs?, minRowHeight: Dp, maxLi
             Text(
                 text = prefs.emoji,
                 style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.desaturatedEmoji(),
             )
             Spacer(Modifier.width(6.dp))
         }

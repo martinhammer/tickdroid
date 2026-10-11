@@ -127,9 +127,8 @@ private fun CellText(text: String, color: ColorProvider, fontSize: TextUnit) {
 }
 
 /**
- * A track label without the name: the emoji (full colour; RemoteViews can't filter text the
- * way the journal's desaturatedEmoji modifier does) or the two-letter abbreviation, styled like
- * the Days down header.
+ * A track label without the name: the emoji or the two-letter abbreviation, styled like the
+ * Days down header.
  */
 @Composable
 internal fun ShortLabel(row: WidgetRow) {
