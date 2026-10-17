@@ -16,8 +16,8 @@ android {
         applicationId = "com.martinhammer.tickdroid"
         minSdk = 31
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.2.0"
+        versionCode = 10
+        versionName = "1.3.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

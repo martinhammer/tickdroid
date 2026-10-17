@@ -17,7 +17,7 @@ Some of the key features which already exist:
 * System / light / dark theme setting
 * Setting for main screen layout: days down versus tracks down
 * Setting for grid density, i.e. size of the cells
-* Add / remove / rename / toggle private / reorder tracks (changes sync with Tickbuddy)
+* Add / remove / rename / toggle private / reorder / archive tracks (changes sync with Tickbuddy)
 * Custom colours and emoji icons for tracks (for phone only)
 * Landscape mode is handled gracefully
 * Three types of homepage widgets

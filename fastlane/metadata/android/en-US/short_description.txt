@@ -1,1 +1,1 @@
-Daily habit tracker for Nextcloud
+Daily habit and event tracker for Nextcloud

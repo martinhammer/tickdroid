@@ -1,0 +1,2 @@
+Added track archive and restore functionality.
+Fix for incorrect online/offline status on tracks settings screens.
