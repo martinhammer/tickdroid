@@ -5,6 +5,7 @@ import com.martinhammer.tickdroid.data.remote.OcsEnvelope
 import com.martinhammer.tickdroid.data.remote.OcsMeta
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
+import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.TrackType
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -20,13 +21,18 @@ import retrofit2.HttpException
 import retrofit2.Response
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.time.LocalDate
 import javax.net.ssl.SSLHandshakeException
 
 class TrackEditorTest {
 
     private val api = mockk<TickbuddyApi>()
     private val syncManager = mockk<SyncManager>()
-    private val editor = TrackEditor(syncManager, Json { ignoreUnknownKeys = true })
+    private val clock = object : Clock {
+        override fun today(): LocalDate = LocalDate.of(2026, 8, 14)
+        override fun nowMillis() = 0L
+    }
+    private val editor = TrackEditor(syncManager, Json { ignoreUnknownKeys = true }, clock)
 
     @Before fun setUp() {
         // Run each change's block straight against the mocked API, as changeTracks does.
@@ -95,7 +101,7 @@ class TrackEditorTest {
     @Test fun `create sends the trimmed name and wire type`() = runTest {
         coEvery { api.createTrack("Coffee", "counter") } returns ok(dto(7))
         assertEquals(TrackChange.Created(7), editor.create("  Coffee ", TrackType.COUNTER, private = false))
-        coVerify(exactly = 0) { api.updateTrack(any(), any(), any()) }
+        coVerify(exactly = 0) { api.updateTrack(any(), any(), any(), any(), any()) }
     }
 
     @Test fun `create with private makes a second call`() = runTest {
@@ -148,5 +154,37 @@ class TrackEditorTest {
         coEvery { api.reorderTracks(any()) } returns ok(emptyList())
         assertEquals(TrackChange.Done, editor.reorder(listOf(3, 5, 1, 2)))
         coVerify { api.reorderTracks(listOf(3L, 1L, 2L, 4L)) }
+    }
+
+    // --- Archive / restore ---
+
+    @Test fun `archive sends archived true and the phone's date`() = runTest {
+        coEvery { api.updateTrack(4, archived = true, archivedAt = "2026-08-14") } returns ok(dto(4))
+        assertEquals(TrackChange.Done, editor.archive(4))
+        coVerify { api.updateTrack(4, null, null, true, "2026-08-14") }
+    }
+
+    @Test fun `restore sends archived false and no date`() = runTest {
+        coEvery { api.updateTrack(4, archived = false) } returns ok(dto(4))
+        assertEquals(TrackChange.Done, editor.restore(4))
+        coVerify { api.updateTrack(4, null, null, false, null) }
+    }
+
+    @Test fun `404 on archive and restore shows the server's message, not Done`() = runTest {
+        coEvery { api.updateTrack(4, archived = true, archivedAt = any()) } throws httpError(404, ocsError("Track not found"))
+        coEvery { api.updateTrack(4, archived = false) } throws httpError(404, ocsError("Track not found"))
+        assertEquals(TrackChange.Failed("Track not found"), editor.archive(4))
+        assertEquals(TrackChange.Failed("Track not found"), editor.restore(4))
+    }
+
+    @Test fun `archive and restore share the error table`() = runTest {
+        coEvery { api.updateTrack(4, archived = true, archivedAt = any()) } throws SSLHandshakeException("PKIX")
+        coEvery { api.updateTrack(5, archived = true, archivedAt = any()) } throws httpError(401)
+        coEvery { api.updateTrack(4, archived = false) } throws SocketTimeoutException("timeout")
+        coEvery { api.updateTrack(5, archived = false) } throws httpError(500)
+        assertEquals(TrackChange.Failed("Couldn't save. The server's certificate isn't trusted."), editor.archive(4))
+        assertEquals(TrackChange.SignedOut, editor.archive(5))
+        assertEquals(TrackChange.Failed("Couldn't save. Check your connection and try again."), editor.restore(4))
+        assertEquals(TrackChange.Failed("Couldn't save. Tickbuddy returned an error (HTTP 500)."), editor.restore(5))
     }
 }

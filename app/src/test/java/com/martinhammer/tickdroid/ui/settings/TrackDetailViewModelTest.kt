@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import com.martinhammer.tickdroid.data.sync.TrackChange
 import com.martinhammer.tickdroid.data.sync.TrackEditor
 import com.martinhammer.tickdroid.domain.Track
@@ -30,6 +31,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrackDetailViewModelTest {
@@ -38,7 +40,9 @@ class TrackDetailViewModelTest {
     private val tracks = MutableStateFlow(listOf(track))
     private val prefs = MutableStateFlow(mapOf(10L to TrackPrefs(colorKey = "blue", emoji = null)))
     private val online = MutableStateFlow(true)
-    private val trackRepository = mockk<TrackRepository> { every { observeTracks() } returns tracks }
+    private val trackRepository = mockk<TrackRepository> { every { observeAllTracks() } returns tracks }
+    private val archiveFlag = MutableStateFlow(true)
+    private val serverFeatures = mockk<ServerFeatures> { every { archivedTracks } returns archiveFlag }
     private val prefsRepository = mockk<TrackPrefsRepository> { every { observeAll() } returns prefs }
     private val networkMonitor = mockk<NetworkMonitor> { every { isOnline } returns online }
     private val editor = mockk<TrackEditor>()
@@ -51,7 +55,7 @@ class TrackDetailViewModelTest {
 
     private fun TestScope.harness(): Harness {
         val vm = TrackDetailViewModel(
-            SavedStateHandle(mapOf("localId" to 1L)), trackRepository, prefsRepository, networkMonitor, editor,
+            SavedStateHandle(mapOf("localId" to 1L)), trackRepository, prefsRepository, networkMonitor, editor, serverFeatures,
         )
         val events = mutableListOf<TrackDetailEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
@@ -152,5 +156,62 @@ class TrackDetailViewModelTest {
         coVerify(exactly = 0) { editor.setPrivate(any(), any()) }
         coVerify(exactly = 0) { editor.delete(any()) }
         assertTrue(h.events.isEmpty())
+    }
+
+    // --- Archive ---
+
+    private val archivedTrack = track.copy(archivedAt = LocalDate.of(2026, 8, 14))
+
+    @Test fun `archive keeps the last active track once Room has it archived, then sends Archived`() = runTest {
+        coEvery { editor.archive(10) } coAnswers {
+            // The re-read marks the row archived before the call returns; prefs stay.
+            tracks.value = listOf(archivedTrack)
+            TrackChange.Done
+        }
+        val h = harness()
+        h.vm.archive()
+        assertEquals(listOf(TrackDetailEvent.Archived(10)), h.events)
+        assertEquals(track, h.vm.state.value.track)
+        assertEquals("blue", h.vm.state.value.prefs.colorKey)
+        assertTrue(h.vm.state.value.archiving)
+    }
+
+    @Test fun `a failed archive clears archiving and sends ArchiveFailed`() = runTest {
+        coEvery { editor.archive(10) } returns TrackChange.Failed("Track not found")
+        val h = harness()
+        h.vm.archive()
+        assertEquals(listOf(TrackDetailEvent.ArchiveFailed("Track not found")), h.events)
+        assertEquals(false, h.vm.state.value.archiving)
+        assertEquals(track, h.vm.state.value.track)
+    }
+
+    @Test fun `archive is disabled while another change runs`() = runTest {
+        val answer = CompletableDeferred<TrackChange>()
+        coEvery { editor.delete(10) } coAnswers { answer.await() }
+        val h = harness()
+        h.vm.delete()
+        h.vm.archive()
+        coVerify(exactly = 0) { editor.archive(any()) }
+        answer.complete(TrackChange.Failed("x"))
+    }
+
+    @Test fun `a track archived elsewhere shows as not found`() = runTest {
+        val h = harness()
+        tracks.value = listOf(archivedTrack)
+        assertNull(h.vm.state.value.track)
+    }
+
+    @Test fun `archiveSupported follows the flag`() = runTest {
+        val h = harness()
+        assertTrue(h.vm.state.value.archiveSupported)
+        archiveFlag.value = false
+        assertEquals(false, h.vm.state.value.archiveSupported)
+    }
+
+    @Test fun `offline archive never reaches the editor`() = runTest {
+        online.value = false
+        val h = harness()
+        h.vm.archive()
+        coVerify(exactly = 0) { editor.archive(any()) }
     }
 }

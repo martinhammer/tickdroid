@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import com.martinhammer.tickdroid.data.sync.TrackChange
 import com.martinhammer.tickdroid.data.sync.TrackEditor
 import com.martinhammer.tickdroid.domain.Track
@@ -34,6 +35,10 @@ data class TrackDetailUiState(
     val pendingPrivate: Boolean? = null,
     val renaming: Boolean = false,
     val deleting: Boolean = false,
+    /** An archive is on its way (or done and the screen is leaving). */
+    val archiving: Boolean = false,
+    /** The server can archive: "Archive track" and "Archive instead" are offered. */
+    val archiveSupported: Boolean = false,
 )
 
 sealed interface TrackDetailEvent {
@@ -45,6 +50,12 @@ sealed interface TrackDetailEvent {
 
     /** The delete dialog closes and the toast shows. */
     data class DeleteFailed(val text: String) : TrackDetailEvent
+
+    /** The screen goes back to the list, which opens its Archived row and scrolls to the track. */
+    data class Archived(val serverId: Long) : TrackDetailEvent
+
+    /** Whichever dialog archived (the archive confirm, or the delete confirm) closes; toast. */
+    data class ArchiveFailed(val text: String) : TrackDetailEvent
     data class Toast(val text: String) : TrackDetailEvent
 }
 
@@ -55,6 +66,7 @@ class TrackDetailViewModel @Inject constructor(
     private val prefsRepository: TrackPrefsRepository,
     networkMonitor: NetworkMonitor,
     private val trackEditor: TrackEditor,
+    serverFeatures: ServerFeatures,
 ) : ViewModel() {
 
     private val localId: Long = checkNotNull(savedStateHandle["localId"]) {
@@ -66,24 +78,35 @@ class TrackDetailViewModel @Inject constructor(
         val renaming: Boolean = false,
         val deleting: Boolean = false,
         val deleted: Boolean = false,
-    )
+        val archiving: Boolean = false,
+        val archived: Boolean = false,
+    ) {
+        /** This screen's own delete or archive is running, or done and the screen is leaving. */
+        val leaving: Boolean get() = deleting || deleted || archiving || archived
+    }
 
     private val busy = MutableStateFlow(Busy())
 
-    // The last track (and its prefs) seen in Room. While this screen's own delete runs, and
-    // after it until the back navigation, the screen keeps showing them: the re-read removes
-    // the row (and sweeps its prefs) before the screen leaves, and must not flash "Track not
-    // found." or a colourless badge.
+    // The last active track (and its prefs) seen in Room. While this screen's own delete or
+    // archive runs, and after it until the back navigation, the screen keeps showing them: the
+    // re-read removes the row (and sweeps its prefs) or marks it archived before the screen
+    // leaves, and must not flash "Track not found." or a colourless badge.
     private var lastTrack: Track? = null
     private var lastPrefs: TrackPrefs = TrackPrefs()
 
+    // Every track, archived included, so the screen still finds its track at the moment it
+    // becomes archived and can hold the last active state (above).
     val state: StateFlow<TrackDetailUiState> = combine(
-        trackRepository.observeTracks(),
+        trackRepository.observeAllTracks(),
         prefsRepository.observeAll(),
         busy,
-    ) { tracks, prefsByServerId, busy ->
-        val live = tracks.firstOrNull { it.localId == localId }
-        val keepLast = live == null && (busy.deleting || busy.deleted)
+        serverFeatures.archivedTracks,
+    ) { tracks, prefsByServerId, busy, archiveSupported ->
+        val found = tracks.firstOrNull { it.localId == localId }
+        // An archived track has no track screen: archived elsewhere, it reads "Track not found.",
+        // like a track deleted elsewhere.
+        val live = found?.takeUnless { it.archived }
+        val keepLast = live == null && busy.leaving
         val track = if (keepLast) lastTrack else live
         val prefs = if (keepLast) lastPrefs else live?.serverId?.let { prefsByServerId[it] } ?: TrackPrefs()
         if (live != null) {
@@ -97,6 +120,8 @@ class TrackDetailViewModel @Inject constructor(
             pendingPrivate = busy.pendingPrivate,
             renaming = busy.renaming,
             deleting = busy.deleting || busy.deleted,
+            archiving = busy.archiving || busy.archived,
+            archiveSupported = archiveSupported,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -163,7 +188,7 @@ class TrackDetailViewModel @Inject constructor(
 
     fun delete() {
         val serverId = state.value.track?.serverId ?: return
-        if (busy.value.deleting || !online.value) return
+        if (busy.value.leaving || !online.value) return
         busy.update { it.copy(deleting = true) }
         viewModelScope.launch {
             when (val result = trackEditor.delete(serverId)) {
@@ -175,6 +200,26 @@ class TrackDetailViewModel @Inject constructor(
                 else -> {
                     busy.update { it.copy(deleting = false, deleted = true) }
                     _events.send(TrackDetailEvent.Deleted)
+                }
+            }
+        }
+    }
+
+    /** "Archive track" (after its confirm) and "Archive instead" on the delete confirm. */
+    fun archive() {
+        val serverId = state.value.track?.serverId ?: return
+        if (busy.value.leaving || !online.value) return
+        busy.update { it.copy(archiving = true) }
+        viewModelScope.launch {
+            when (val result = trackEditor.archive(serverId)) {
+                is TrackChange.Failed -> {
+                    busy.update { it.copy(archiving = false) }
+                    _events.send(TrackDetailEvent.ArchiveFailed(result.message))
+                }
+                TrackChange.SignedOut -> busy.update { it.copy(archiving = false) }
+                else -> {
+                    busy.update { it.copy(archiving = false, archived = true) }
+                    _events.send(TrackDetailEvent.Archived(serverId))
                 }
             }
         }

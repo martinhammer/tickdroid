@@ -15,6 +15,8 @@ data class TrackEntity(
     val type: String,
     val sortOrder: Int,
     val private: Boolean,
+    /** ISO YYYY-MM-DD; null = active. Stored like `TickEntity.date`. */
+    val archivedAt: String? = null,
     val dirty: Boolean = false,
     val deleted: Boolean = false,
     val updatedAtLocal: Long = System.currentTimeMillis(),

@@ -103,6 +103,13 @@ class WidgetModelsTest {
         assertEquals(ButtonModel.ChooseTrack, button(WidgetConfig.Button(999)))
     }
 
+    @Test fun `button whose track is archived is ChooseTrack`() {
+        // Archived tracks never reach the models: observeTracks() is active-only, so the list
+        // simply lacks the configured server id.
+        val archivedLeftOut = tracks.filterNot { it.serverId == 101L }
+        assertEquals(ButtonModel.ChooseTrack, button(WidgetConfig.Button(101), trackList = archivedLeftOut))
+    }
+
     @Test fun `button whose track is private is ChooseTrack`() {
         assertEquals(ButtonModel.ChooseTrack, button(WidgetConfig.Button(103)))
     }

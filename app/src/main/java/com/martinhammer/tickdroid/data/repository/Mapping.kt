@@ -14,6 +14,7 @@ fun TrackEntity.toDomain(): Track = Track(
     type = TrackType.fromWire(type),
     sortOrder = sortOrder,
     private = private,
+    archivedAt = archivedAt?.let(LocalDate::parse),
 )
 
 fun TickEntity.toDomain(): Tick = Tick(

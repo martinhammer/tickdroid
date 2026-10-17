@@ -5,7 +5,9 @@ import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsEntity
 import kotlinx.coroutines.test.runTest
 import org.junit.After
+import okhttp3.mockwebserver.MockResponse
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -178,5 +180,108 @@ class SyncManagerPullTest {
         val status = rig.syncManager.status.value
         assertTrue("expected Error, was $status", status is SyncStatus.Error)
         assertEquals(SyncErrorKind.ServerError, (status as SyncStatus.Error).kind)
+    }
+
+    // --- Archived tracks ---
+
+    private fun tracksJson(smokingArchivedAt: String?) = """
+        {"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+          {"id":10,"name":"Meditate","type":"boolean","sortOrder":0,"private":false,"archivedAt":null},
+          {"id":11,"name":"Pages read","type":"counter","sortOrder":1,"private":false,"archivedAt":null},
+          {"id":13,"name":"Smoking","type":"boolean","sortOrder":2,"private":false,"archivedAt":${smokingArchivedAt?.let { "\"$it\"" } ?: "null"}}
+        ]}}
+    """.trimIndent()
+
+    private val smokingTicks = """
+        {"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+          {"id":200,"trackId":13,"date":"2026-04-10","value":1}
+        ]}}
+    """.trimIndent()
+
+    @Test fun withFlag_readsArchived_keepsDatePrefsAndTicks() = runTest {
+        rig.archivedTracks = true
+        rig.db.trackPrefsDao().upsert(TrackPrefsEntity(serverId = 13, colorKey = "red"))
+        rig.enqueueJson(tracksJson("2026-08-14"))
+        rig.enqueueJson(smokingTicks)
+
+        rig.syncManager.pull(from, to)
+
+        assertEquals("/ocs/v2.php/cloud/capabilities", rig.server.takeRequest().path)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+        val smoking = rig.db.trackDao().findByServerId(13)!!
+        assertEquals("2026-08-14", smoking.archivedAt)
+        assertEquals("red", rig.db.trackPrefsDao().findByServerId(13)?.colorKey)
+        assertNotNull(rig.db.tickDao().find(smoking.localId, "2026-04-10"))
+    }
+
+    @Test fun withoutFlag_noParameter_allActive() = runTest {
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+
+        rig.syncManager.pull(from, to)
+
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks", rig.takeApiRequest().path)
+        assertTrue(rig.db.trackDao().getAll().all { it.archivedAt == null })
+        assertFalse(rig.serverFeatures.archivedTracks.value)
+    }
+
+    @Test fun flagFlipsBetweenPulls_secondPullAlreadyAsksForArchived() = runTest {
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(from, to)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks", rig.takeApiRequest().path)
+        rig.takeApiRequest()
+
+        rig.archivedTracks = true
+        rig.enqueueJson(tracksJson("2026-08-14"))
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(from, to)
+
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+        assertTrue(rig.serverFeatures.archivedTracks.value)
+    }
+
+    @Test fun brokenCapabilities_storedValueStands_pullSucceeds() = runTest {
+        rig.archivedTracks = true
+        rig.enqueueJson(tracksJson("2026-08-14"))
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(from, to)
+        repeat(2) { rig.takeApiRequest() }
+
+        for (broken in listOf(
+            MockResponse().setResponseCode(500),
+            MockResponse().setResponseCode(200).setBody("<html>not json</html>"),
+        )) {
+            rig.capabilitiesOverride = broken
+            rig.enqueueJson(tracksJson("2026-08-14"))
+            rig.enqueueAsset("ocs/empty.json")
+
+            rig.syncManager.pull(from, to)
+
+            assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+            assertTrue(rig.serverFeatures.archivedTracks.value)
+            assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+            rig.takeApiRequest()
+        }
+    }
+
+    @Test fun dirtyTickOnATrackThePullArchives_isDropped_andTheServerValueIsBack() = runTest {
+        rig.archivedTracks = true
+        rig.enqueueJson(tracksJson(null))
+        rig.enqueueJson(smokingTicks)
+        rig.syncManager.pull(from, to)
+        val smoking = rig.db.trackDao().findByServerId(13)!!
+        // Unticked offline, not yet pushed.
+        rig.db.tickDao().update(rig.db.tickDao().find(smoking.localId, "2026-04-10")!!.copy(value = 0, dirty = true, deleted = true))
+
+        rig.enqueueJson(tracksJson("2026-08-14"))
+        rig.enqueueJson(smokingTicks)
+        rig.syncManager.pull(from, to)
+
+        val tick = rig.db.tickDao().find(smoking.localId, "2026-04-10")!!
+        assertFalse(tick.dirty)
+        assertFalse(tick.deleted)
+        assertEquals(1, tick.value)
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
     }
 }

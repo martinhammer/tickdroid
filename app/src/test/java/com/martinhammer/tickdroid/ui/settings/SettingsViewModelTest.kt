@@ -12,6 +12,7 @@ import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.dto.Capabilities
 import com.martinhammer.tickdroid.data.remote.dto.CapabilitiesData
 import com.martinhammer.tickdroid.data.remote.dto.TickbuddyCapability
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import io.mockk.coEvery
 import io.mockk.every
 import io.mockk.mockk
@@ -33,6 +34,7 @@ class SettingsViewModelTest {
     private val uiPreferences = mockk<UiPreferences>(relaxed = true)
     private val api = mockk<TickbuddyApi>()
     private val networkMonitor = mockk<NetworkMonitor>()
+    private val serverFeatures = mockk<ServerFeatures>(relaxed = true)
 
     @Before fun setUp() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -52,7 +54,7 @@ class SettingsViewModelTest {
             ),
         )
 
-    private fun viewModel() = SettingsViewModel(authRepository, uiPreferences, api, networkMonitor)
+    private fun viewModel() = SettingsViewModel(authRepository, uiPreferences, api, networkMonitor, serverFeatures)
 
     @Test fun `version present maps to Known`() {
         coEvery { api.getCapabilities() } returns
@@ -104,5 +106,14 @@ class SettingsViewModelTest {
         viewModel().setJournalLayout(JournalLayout.TRACKS_DOWN)
 
         verify { uiPreferences.setJournalLayout(JournalLayout.TRACKS_DOWN) }
+    }
+
+    @Test fun `the Account fetch updates ServerFeatures`() {
+        val tickbuddy = TickbuddyCapability(version = "1.3.0", features = mapOf("archivedTracks" to true))
+        coEvery { api.getCapabilities() } returns capabilitiesEnvelope(tickbuddy)
+
+        viewModel()
+
+        verify { serverFeatures.update(tickbuddy) }
     }
 }

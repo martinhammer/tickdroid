@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +32,8 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DragIndicator
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -56,9 +60,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.hideFromAccessibility
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -69,12 +75,16 @@ import com.martinhammer.tickdroid.ui.common.TrackBadge
 import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TracksSettingsScreen(
     onBack: () -> Unit,
     onOpenTrack: (Long) -> Unit = {},
+    /** Server id of a track the track screen has just archived, or null. */
+    justArchived: Long? = null,
+    onJustArchivedHandled: () -> Unit = {},
     viewModel: TracksSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -85,8 +95,16 @@ fun TracksSettingsScreen(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showNewTrack by rememberSaveable { mutableStateOf(false) }
     var showHelp by rememberSaveable { mutableStateOf(false) }
+    // Collapsed on every visit; kept (saveable, with the list's back-stack entry) while the user
+    // opens a track and comes back, or rotates. Not stored anywhere else.
+    var archivedOpen by rememberSaveable { mutableStateOf(false) }
+    // Server ids: the archived track whose dialog is open, and the one whose delete confirm is.
+    var archivedDialogFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    var deleteConfirmFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var scrollToServerId by remember { mutableStateOf<Long?>(null) }
     val offlineToast = { Toast.makeText(context, OfflineMessage, Toast.LENGTH_SHORT).show() }
+    val toast = { text: String -> Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
+    val dateFormatter = rememberArchivedDateFormatter()
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
@@ -95,15 +113,39 @@ fun TracksSettingsScreen(
                     scope.launch { sheetState.hide() }.invokeOnCompletion { showNewTrack = false }
                     scrollToServerId = event.serverId
                 }
-                is TracksSettingsEvent.Toast -> Toast.makeText(context, event.text, Toast.LENGTH_LONG).show()
+                is TracksSettingsEvent.Restored -> {
+                    archivedDialogFor = null
+                    scrollToServerId = event.serverId
+                }
+                TracksSettingsEvent.Deleted -> deleteConfirmFor = null
+                is TracksSettingsEvent.RestoreFailed -> {
+                    archivedDialogFor = null
+                    toast(event.text)
+                }
+                is TracksSettingsEvent.DeleteFailed -> {
+                    deleteConfirmFor = null
+                    toast(event.text)
+                }
+                is TracksSettingsEvent.Toast -> toast(event.text)
             }
         }
     }
 
-    // After a create: once the new track is in the list, scroll to it unless it's in view.
-    LaunchedEffect(scrollToServerId, state.rows) {
+    // Back from the track screen after an archive: open the Archived row so the track is seen
+    // arriving, and scroll to it.
+    LaunchedEffect(justArchived) {
+        if (justArchived != null) {
+            archivedOpen = true
+            scrollToServerId = justArchived
+            onJustArchivedHandled()
+        }
+    }
+
+    // After a create, restore or archive: once the track is in the list (for an archive, once
+    // the Archived row is open and Room has it as archived), scroll to it unless it's in view.
+    LaunchedEffect(scrollToServerId, state, archivedOpen) {
         val target = scrollToServerId ?: return@LaunchedEffect
-        val index = state.rows.indexOfFirst { it.track.serverId == target }
+        val index = listIndexOf(state, archivedOpen, target)
         if (index < 0) return@LaunchedEffect
         if (!listState.isFullyVisible(index)) listState.animateScrollToItem(index)
         scrollToServerId = null
@@ -145,6 +187,10 @@ fun TracksSettingsScreen(
             onMoveUp = viewModel::moveUp,
             onMoveDown = viewModel::moveDown,
             onOfflineTap = offlineToast,
+            archivedOpen = archivedOpen,
+            onToggleArchived = { archivedOpen = !archivedOpen },
+            onOpenArchived = { serverId -> archivedDialogFor = serverId },
+            dateFormatter = dateFormatter,
             modifier = Modifier.padding(padding),
         )
     }
@@ -159,8 +205,47 @@ fun TracksSettingsScreen(
             onDismiss = { if (!state.adding) showNewTrack = false },
         )
     }
+
+    archivedDialogFor?.let { serverId ->
+        val row = state.archived.firstOrNull { it.track.serverId == serverId }
+        if (row == null) {
+            // Gone while open (deleted or restored elsewhere and a pull landed, or our own
+            // restore's re-read): close.
+            LaunchedEffect(serverId, state.loaded) { if (state.loaded) archivedDialogFor = null }
+        } else {
+            ArchivedTrackDialog(
+                name = row.track.name,
+                dateText = row.track.archivedAt?.format(dateFormatter).orEmpty(),
+                restoring = state.restoringServerId == serverId,
+                onRestore = { if (online) viewModel.restore(serverId) else offlineToast() },
+                onDelete = {
+                    if (online) {
+                        archivedDialogFor = null
+                        deleteConfirmFor = serverId
+                    } else {
+                        offlineToast()
+                    }
+                },
+                onDismiss = { archivedDialogFor = null },
+            )
+        }
+    }
+    deleteConfirmFor?.let { serverId ->
+        val row = state.archived.firstOrNull { it.track.serverId == serverId }
+        if (row == null) {
+            LaunchedEffect(serverId, state.loaded) { if (state.loaded) deleteConfirmFor = null }
+        } else {
+            // Step 4's confirm, without "Archive instead": the track already is archived.
+            DeleteTrackDialog(
+                name = row.track.name,
+                deleting = state.deletingServerId == serverId,
+                onConfirm = { if (online) viewModel.delete(serverId) else offlineToast() },
+                onDismiss = { deleteConfirmFor = null },
+            )
+        }
+    }
     if (showHelp) {
-        TracksHelpSheet(onDismiss = { showHelp = false })
+        TracksHelpSheet(archiveSupported = state.archiveSupported, onDismiss = { showHelp = false })
     }
 }
 
@@ -172,7 +257,23 @@ private fun LazyListState.isFullyVisible(index: Int): Boolean {
         item.offset + item.size <= info.viewportEndOffset - info.afterContentPadding
 }
 
-/** List, drag-to-reorder and empty state, without the Scaffold. Internal for UI tests. */
+/**
+ * Where the track with [serverId] sits in [TracksSettingsContent]'s list, or -1 if it isn't drawn
+ * (an archived track while the Archived row is collapsed). Mirrors the list's item order: the
+ * empty text (only when there are no active tracks), the active rows, the Archived row, then the
+ * archived rows while open.
+ */
+internal fun listIndexOf(state: TracksSettingsUiState, archivedOpen: Boolean, serverId: Long): Int {
+    val active = state.rows.indexOfFirst { it.track.serverId == serverId }
+    if (active >= 0) return active
+    if (!archivedOpen) return -1
+    val archived = state.archived.indexOfFirst { it.track.serverId == serverId }
+    if (archived < 0) return -1
+    val emptyText = if (state.rows.isEmpty()) 1 else 0
+    return emptyText + state.rows.size + 1 + archived
+}
+
+/** List, drag-to-reorder, the Archived section and empty state, without the Scaffold. Internal for UI tests. */
 @Composable
 internal fun TracksSettingsContent(
     state: TracksSettingsUiState,
@@ -185,6 +286,10 @@ internal fun TracksSettingsContent(
     onMoveDown: (Long) -> Unit,
     onOfflineTap: () -> Unit,
     modifier: Modifier = Modifier,
+    archivedOpen: Boolean = false,
+    onToggleArchived: () -> Unit = {},
+    onOpenArchived: (serverId: Long) -> Unit = {},
+    dateFormatter: DateTimeFormatter = rememberArchivedDateFormatter(),
 ) {
     when {
         !state.loaded -> Box(
@@ -193,20 +298,20 @@ internal fun TracksSettingsContent(
         ) {
             CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
         }
-        state.rows.isEmpty() -> Box(
+        state.rows.isEmpty() && state.archived.isEmpty() -> Box(
             modifier = modifier.fillMaxSize().padding(32.dp),
             contentAlignment = Alignment.Center,
         ) {
-            Text(
-                "No tracks yet. Tap + to add one.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+            EmptyTracksText()
         }
         else -> {
             val reorderState = rememberReorderableLazyListState(listState) { from, to ->
-                onMove(from.key as Long, to.key as Long)
+                // Two key types share the list (active rows: Long local ids; the Archived row and
+                // archived rows: Strings), so never cast blindly. move() ignores ids that aren't
+                // active rows as well.
+                val fromId = from.key as? Long ?: return@rememberReorderableLazyListState
+                val toId = to.key as? Long ?: return@rememberReorderableLazyListState
+                onMove(fromId, toId)
             }
             LazyColumn(
                 state = listState,
@@ -220,6 +325,14 @@ internal fun TracksSettingsContent(
                 // Bottom: room for the last row to scroll clear of the FAB.
                 contentPadding = PaddingValues(top = 8.dp, bottom = 88.dp),
             ) {
+                if (state.rows.isEmpty()) {
+                    // Every track archived: today's empty text, with the Archived row under it.
+                    item(key = "empty") {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            EmptyTracksText()
+                        }
+                    }
+                }
                 itemsIndexed(items = state.rows, key = { _, row -> row.track.localId }) { index, row ->
                     ReorderableItem(reorderState, key = row.track.localId) { isDragging ->
                         val id = row.track.localId
@@ -237,7 +350,108 @@ internal fun TracksSettingsContent(
                         )
                     }
                 }
+                // Not ReorderableItems, so they can't be dragged. Hidden when nothing is archived.
+                if (state.archived.isNotEmpty()) {
+                    item(key = "archived-header") {
+                        ArchivedHeader(count = state.archived.size, open = archivedOpen, onToggle = onToggleArchived)
+                    }
+                    if (archivedOpen) {
+                        items(items = state.archived, key = { "archived-${it.track.localId}" }) { row ->
+                            ArchivedTrackRow(
+                                row = row,
+                                dateText = row.track.archivedAt?.format(dateFormatter).orEmpty(),
+                                onClick = {
+                                    val serverId = row.track.serverId
+                                    when {
+                                        !online -> onOfflineTap()
+                                        serverId != null -> onOpenArchived(serverId)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmptyTracksText() {
+    Text(
+        "No tracks yet. Tap + to add one.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+    )
+}
+
+/** "Archived (n)": opens and closes the archived rows. Works offline: it only changes the view. */
+@Composable
+private fun ArchivedHeader(count: Int, open: Boolean, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .padding(top = 8.dp)
+            .widthIn(max = MaxContentWidth)
+            .fillMaxWidth()
+            .heightIn(min = 48.dp)
+            .clickable(
+                onClickLabel = if (open) "Hide archived tracks" else "Show archived tracks",
+                onClick = onToggle,
+            )
+            .semantics(mergeDescendants = true) {
+                contentDescription = "Archived, $count ${if (count == 1) "track" else "tracks"}"
+                stateDescription = if (open) "Expanded" else "Collapsed"
+            }
+            .testTag("archived-header")
+            .padding(horizontal = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Archived ($count)",
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        Icon(
+            imageVector = if (open) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** An archived track: greyed, no handle, no chevron. A tap opens the archived dialog. */
+@Composable
+private fun ArchivedTrackRow(
+    row: TrackRowState,
+    dateText: String,
+    onClick: () -> Unit,
+) {
+    val track = row.track
+    Row(
+        modifier = Modifier
+            .widthIn(max = MaxContentWidth)
+            .fillMaxWidth()
+            .clickable(onClickLabel = "Restore or delete", onClick = onClick)
+            .semantics(mergeDescendants = true) {}
+            .testTag("archived-${track.localId}")
+            .padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TrackBadge(track = track, prefs = row.prefs, muted = true)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = track.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = archivedSubtitle(track.type, dateText),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

@@ -35,6 +35,9 @@ object Routes {
     fun trackDetail(localId: Long): String = "settings/tracks/$localId"
 }
 
+/** Navigation result: the server id of a track the track screen has just archived. */
+private const val JUST_ARCHIVED = "justArchivedServerId"
+
 @Composable
 fun TickdroidApp(rootViewModel: RootViewModel = hiltViewModel()) {
     val authState by rootViewModel.authState.collectAsStateWithLifecycle()
@@ -93,17 +96,29 @@ private fun TickdroidNav(authState: AuthState) {
         composable(Routes.SETTINGS_APP) {
             AppSettingsScreen(onBack = { navController.popBackStack() })
         }
-        composable(Routes.SETTINGS_TRACKS) {
+        composable(Routes.SETTINGS_TRACKS) { entry ->
+            val justArchived by entry.savedStateHandle
+                .getStateFlow<Long?>(JUST_ARCHIVED, null)
+                .collectAsStateWithLifecycle()
             TracksSettingsScreen(
                 onBack = { navController.popBackStack() },
                 onOpenTrack = { localId -> navController.navigate(Routes.trackDetail(localId)) },
+                justArchived = justArchived,
+                onJustArchivedHandled = { entry.savedStateHandle[JUST_ARCHIVED] = null },
             )
         }
         composable(
             route = Routes.SETTINGS_TRACK_DETAIL,
             arguments = listOf(navArgument("localId") { type = NavType.LongType }),
         ) {
-            TrackDetailScreen(onBack = { navController.popBackStack() })
+            TrackDetailScreen(
+                onBack = { navController.popBackStack() },
+                // Tells the list to open its Archived row and scroll to the track.
+                onArchived = { serverId ->
+                    navController.previousBackStackEntry?.savedStateHandle?.set(JUST_ARCHIVED, serverId)
+                    navController.popBackStack()
+                },
+            )
         }
     }
 }

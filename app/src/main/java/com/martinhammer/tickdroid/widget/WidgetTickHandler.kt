@@ -32,7 +32,9 @@ class WidgetTickHandler @Inject constructor(
         if (authRepository.state.value !is AuthState.SignedIn) return Outcome.SignedOut
         if (shownDay != clock.today()) return Outcome.StaleDay
         val track = trackRepository.findByServerId(trackServerId) ?: return Outcome.TrackGone
-        if (track.private) return Outcome.TrackGone
+        // Archived counts as gone: findByServerId returns archived tracks, and a widget drawn
+        // before the archive (Glance sessions linger) could otherwise tick one.
+        if (track.private || track.archived) return Outcome.TrackGone
         when {
             delta == null && track.type == TrackType.BOOLEAN ->
                 tickRepository.toggleBoolean(track.localId, shownDay)

@@ -12,6 +12,7 @@ import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.data.remote.dto.TickbuddyCapability
 import com.martinhammer.tickdroid.widget.WidgetConfig
 import com.martinhammer.tickdroid.widget.WidgetConfigStore
 import io.mockk.mockk
@@ -19,6 +20,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -33,6 +35,7 @@ class SyncCoordinatorTest {
     private lateinit var auth: AuthRepository
     private lateinit var scheduler: RecordingScheduler
     private lateinit var coordinator: SyncCoordinator
+    private lateinit var serverFeatures: ServerFeatures
 
     @Before fun setUp() {
         context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -45,6 +48,7 @@ class SyncCoordinatorTest {
         store = CredentialStore(context).also { it.clear() }
         auth = AuthRepository(store)
         scheduler = RecordingScheduler(context)
+        serverFeatures = ServerFeatures(context).also { it.clear() }
         // Only the mutex matters here — the coordinator takes it around the wipe. No pull runs,
         // so the api is never touched.
         val syncManager = SyncManager(
@@ -54,8 +58,9 @@ class SyncCoordinatorTest {
             tickDao = db.tickDao(),
             trackPrefsDao = db.trackPrefsDao(),
             authRepository = auth,
+            serverFeatures = serverFeatures,
         )
-        coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs, widgetStore)
+        coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs, widgetStore, serverFeatures)
         coordinator.start()
     }
 
@@ -66,6 +71,7 @@ class SyncCoordinatorTest {
         store.clear()
         prefs.clear()
         widgetStore.clear()
+        serverFeatures.clear()
     }
 
     @Test fun signIn_schedulesPushAndPeriodic() = runTest {
@@ -119,6 +125,8 @@ class SyncCoordinatorTest {
         prefs.setGridDensity(GridDensity.HIGH)
         assertEquals(GridDensity.HIGH, prefs.gridDensity.value)
         widgetStore.put(42, WidgetConfig.Button(trackServerId = 1L))
+        serverFeatures.update(TickbuddyCapability(features = mapOf("archivedTracks" to true)))
+        assertTrue(serverFeatures.archivedTracks.value)
 
         auth.signOut()
 
@@ -136,6 +144,7 @@ class SyncCoordinatorTest {
             db.tickDao().getRange("2026-01-01", "2026-12-31").isEmpty(),
         )
         assertEquals(GridDensity.Default, prefs.gridDensity.value)
+        assertFalse("server features should be cleared on sign-out", serverFeatures.archivedTracks.value)
     }
 
     @Test fun signOut_thenSignInAgain_leavesDatabaseUsable() = runTest {

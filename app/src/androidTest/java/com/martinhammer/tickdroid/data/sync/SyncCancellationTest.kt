@@ -115,7 +115,7 @@ class SyncCancellationTest {
         val before = rig.syncManager.status.value
         assertTrue("setup: expected an error, got $before", before is SyncStatus.Error)
 
-        rig.server.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
+        rig.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
         val job = launch(Dispatchers.IO) { rig.syncManager.pull(from, to) }
         withTimeout(5_000) { while (rig.syncManager.status.value !is SyncStatus.Syncing) delay(10) }
         job.cancel()

@@ -73,6 +73,7 @@ class SyncManager @Inject constructor(
     private val tickDao: TickDao,
     private val trackPrefsDao: TrackPrefsDao,
     private val authRepository: AuthRepository,
+    private val serverFeatures: ServerFeatures,
 ) {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -119,13 +120,17 @@ class SyncManager @Inject constructor(
         _status.value = SyncStatus.Syncing
         try {
             mutex.withLock {
-                val tracks = api.getTracks().ocs.data
+                // First, so the track read below matches what the server offers.
+                refreshServerFeatures()
+                val tracks = fetchTracks()
                 val ticks = api.getTicks(from.toString(), to.toString()).ocs.data
                 // Never abandon a half-applied reconcile: see schedulePull's note on what
                 // Room does to the connection when a transaction's caller is cancelled.
                 withContext(NonCancellable) {
                     db.withTransaction {
-                        reconcileTracks(tracks)
+                        // Order matters: ticks dropped by applyTracks get the server's value
+                        // back from reconcileTicks.
+                        applyTracks(tracks)
                         reconcileTicks(ticks, from.toString(), to.toString())
                     }
                 }
@@ -177,8 +182,10 @@ class SyncManager @Inject constructor(
             // Skipped after a 401 sign-out: there are no credentials left to read with.
             if (authRepository.state.value is AuthState.SignedIn) {
                 try {
-                    val tracks = api.getTracks().ocs.data
-                    withContext(NonCancellable) { db.withTransaction { reconcileTracks(tracks) } }
+                    // No capabilities call here: the flag is whatever the last pull saw, and
+                    // Tracks settings is always reached after one.
+                    val tracks = fetchTracks()
+                    withContext(NonCancellable) { db.withTransaction { applyTracks(tracks) } }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
@@ -187,6 +194,40 @@ class SyncManager @Inject constructor(
             outcome.getOrThrow()
         }
     }.await()
+
+    /**
+     * Reads the capabilities into [ServerFeatures]. On any failure but cancellation the stored
+     * value stands and the pull carries on: an IO failure fails the track read straight after
+     * anyway, and a broken capabilities reply (another Nextcloud app can cause one) must not stop
+     * the pull.
+     */
+    private suspend fun refreshServerFeatures() {
+        try {
+            serverFeatures.update(api.getCapabilities().ocs.data.capabilities?.tickbuddy)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Every track the phone should keep: archived ones too when the server offers them. */
+    private suspend fun fetchTracks(): List<TrackDto> =
+        api.getTracks(includeArchived = if (serverFeatures.archivedTracks.value) true else null).ocs.data
+
+    /**
+     * Applies a track list, then drops unsent ticks of archived tracks. Inside a transaction.
+     *
+     * The drop is not optional. The server answers a tick on an archived track with a quiet 200
+     * and the unchanged state, so `PushWorker.pushBoolean` sees a mismatch and leaves a yes/no
+     * tick dirty. Archived tracks stay in Room, so without this the row would stay dirty for
+     * good: re-sent on every push, never overwritten by a pull (dirty rows are skipped), the
+     * "unsaved changes" chip and the widgets' offline symbol stuck on while offline, and the old
+     * tick finally applied if the track is ever restored.
+     */
+    private suspend fun applyTracks(tracks: List<TrackDto>) {
+        reconcileTracks(tracks)
+        tickDao.deleteDirtyOfArchivedTracks()
+    }
 
     private suspend fun reconcileTracks(remote: List<TrackDto>) {
         val local = trackDao.getAll().associateBy { it.serverId }
@@ -202,6 +243,7 @@ class SyncManager @Inject constructor(
                         type = dto.type,
                         sortOrder = dto.sortOrder,
                         private = dto.private,
+                        archivedAt = dto.archivedAt,
                     )
                 )
             } else if (!existing.dirty) {
@@ -212,6 +254,7 @@ class SyncManager @Inject constructor(
                         type = dto.type,
                         sortOrder = dto.sortOrder,
                         private = dto.private,
+                        archivedAt = dto.archivedAt,
                     )
                 )
             }

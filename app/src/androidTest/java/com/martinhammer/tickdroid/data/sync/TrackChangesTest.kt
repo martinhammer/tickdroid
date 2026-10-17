@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.data.sync
 
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsEntity
+import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.TrackType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,10 +35,15 @@ class TrackChangesTest {
 
     private lateinit var rig: SyncTestRig
     private lateinit var editor: TrackEditor
+    private val today = LocalDate.parse("2026-04-20")
+    private val clock = object : Clock {
+        override fun today() = this@TrackChangesTest.today
+        override fun nowMillis() = 0L
+    }
 
     @Before fun setUp() {
         rig = SyncTestRig().also { it.assertSignedIn() }
-        editor = TrackEditor(rig.syncManager, Json { ignoreUnknownKeys = true })
+        editor = TrackEditor(rig.syncManager, Json { ignoreUnknownKeys = true }, clock)
     }
 
     @After fun tearDown() {
@@ -46,10 +52,18 @@ class TrackChangesTest {
 
     private val base = "/ocs/v2.php/apps/tickbuddy/api/tracks"
 
-    private data class T(val id: Long, val name: String, val sortOrder: Int, val private: Boolean = false, val type: String = "boolean")
+    private data class T(
+        val id: Long,
+        val name: String,
+        val sortOrder: Int,
+        val private: Boolean = false,
+        val type: String = "boolean",
+        val archivedAt: String? = null,
+    )
 
     private fun trackJson(t: T) =
-        """{"id":${t.id},"name":"${t.name}","type":"${t.type}","sortOrder":${t.sortOrder},"private":${t.private}}"""
+        """{"id":${t.id},"name":"${t.name}","type":"${t.type}","sortOrder":${t.sortOrder},"private":${t.private},""" +
+            """"archivedAt":${t.archivedAt?.let { "\"$it\"" } ?: "null"}}"""
 
     private fun ok(data: String) = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":$data}}"""
     private fun list(vararg tracks: T) = ok(tracks.joinToString(",", "[", "]") { trackJson(it) })
@@ -65,7 +79,7 @@ class TrackChangesTest {
         rig.enqueueAsset("ocs/tracks_ok.json")
         rig.enqueueAsset("ocs/ticks_ok.json")
         rig.syncManager.pull(LocalDate.parse("2026-04-01"), LocalDate.parse("2026-04-30"))
-        repeat(2) { rig.server.takeRequest() }
+        repeat(2) { rig.takeApiRequest() }
     }
 
     private fun RecordedRequest.form(): List<Pair<String, String>> =
@@ -74,7 +88,7 @@ class TrackChangesTest {
             URLDecoder.decode(k, "UTF-8") to URLDecoder.decode(v, "UTF-8")
         }
 
-    private fun take(): RecordedRequest = rig.server.takeRequest(5, TimeUnit.SECONDS)!!
+    private fun take(): RecordedRequest = rig.takeApiRequest()
 
     // --- Create ---
 
@@ -215,6 +229,97 @@ class TrackChangesTest {
         assertNull(rig.db.trackDao().findByServerId(11))
     }
 
+    // --- Archive / restore ---
+
+    /** [seed] on a server with the `archivedTracks` flag: the pull reads it first. */
+    private suspend fun seedWithArchive() {
+        rig.archivedTracks = true
+        seed()
+        assertTrue(rig.serverFeatures.archivedTracks.value)
+    }
+
+    @Test fun archive_sendsArchivedAndTodaysDate_thenRereadsWithArchived() = runTest {
+        seedWithArchive()
+        val before = rig.db.trackDao().findByServerId(11)!!
+        rig.db.trackPrefsDao().upsert(TrackPrefsEntity(serverId = 11, colorKey = "blue", emoji = "📚"))
+        val ticksBefore = rig.db.tickDao().getRange("2026-04-01", "2026-04-30").filter { it.trackLocalId == before.localId }
+        val archived = pages.copy(archivedAt = today.toString())
+        rig.enqueueJson(ok(trackJson(archived)))
+        rig.enqueueJson(list(meditate, archived, mood))
+
+        assertEquals(TrackChange.Done, editor.archive(11))
+
+        val put = take()
+        assertEquals("PUT", put.method)
+        assertEquals("$base/11", put.path)
+        assertEquals(listOf("archived" to "true", "archivedAt" to "2026-04-20"), put.form())
+        val reread = take()
+        assertEquals("GET", reread.method)
+        assertEquals("$base?includeArchived=true", reread.path)
+        val after = rig.db.trackDao().findByServerId(11)!!
+        assertEquals("2026-04-20", after.archivedAt)
+        assertEquals(before.localId, after.localId)
+        assertEquals("blue", rig.db.trackPrefsDao().findByServerId(11)?.colorKey)
+        assertEquals(
+            ticksBefore,
+            rig.db.tickDao().getRange("2026-04-01", "2026-04-30").filter { it.trackLocalId == before.localId },
+        )
+    }
+
+    @Test fun restore_sendsOnlyArchivedFalse_trackIsActiveAtTheEnd() = runTest {
+        rig.archivedTracks = true
+        rig.enqueueJson(list(meditate, pages.copy(archivedAt = "2026-03-02"), mood))
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(LocalDate.parse("2026-04-01"), LocalDate.parse("2026-04-30"))
+        repeat(2) { take() }
+        val restored = pages.copy(sortOrder = 3)
+        rig.enqueueJson(ok(trackJson(restored)))
+        rig.enqueueJson(list(meditate, mood, restored))
+
+        assertEquals(TrackChange.Done, editor.restore(11))
+
+        assertEquals(listOf("archived" to "false"), take().form())
+        assertEquals("$base?includeArchived=true", take().path)
+        assertNull(rig.db.trackDao().findByServerId(11)!!.archivedAt)
+        assertEquals(listOf(10L, 12L, 11L), rig.db.trackDao().getAll().map { it.serverId })
+    }
+
+    @Test fun reorder_withAnArchivedTrack_readsActiveOnly_sendsActiveIds() = runTest {
+        rig.archivedTracks = true
+        rig.enqueueJson(list(meditate, pages, mood, T(13, "Smoking", 3, archivedAt = "2026-03-02")))
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(LocalDate.parse("2026-04-01"), LocalDate.parse("2026-04-30"))
+        repeat(2) { take() }
+        rig.enqueueJson(list(meditate, pages, mood)) // reorder's own read: active only
+        rig.enqueueJson(ok("[]"))
+        rig.enqueueJson(list(mood.copy(sortOrder = 1), meditate.copy(sortOrder = 2), pages.copy(sortOrder = 3), T(13, "Smoking", 4, archivedAt = "2026-03-02")))
+
+        assertEquals(TrackChange.Done, editor.reorder(listOf(12, 10, 11)))
+
+        assertEquals(base, take().path)
+        assertEquals(
+            listOf("trackIds[]" to "12", "trackIds[]" to "10", "trackIds[]" to "11"),
+            take().form(),
+        )
+        assertEquals("$base?includeArchived=true", take().path)
+    }
+
+    @Test fun archive_dropsADirtyTickWaitingForThatTrack() = runTest {
+        seedWithArchive()
+        val track = rig.db.trackDao().findByServerId(10)!!
+        rig.db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = track.localId, date = today.toString(), value = 1, dirty = true))
+        val other = rig.db.trackDao().findByServerId(11)!!
+        rig.db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = other.localId, date = today.toString(), value = 2, dirty = true))
+        val archived = meditate.copy(archivedAt = today.toString())
+        rig.enqueueJson(ok(trackJson(archived)))
+        rig.enqueueJson(list(archived, pages, mood))
+
+        assertEquals(TrackChange.Done, editor.archive(10))
+
+        assertNull(rig.db.tickDao().find(track.localId, today.toString()))
+        assertTrue("other tracks' unsent ticks stay", rig.db.tickDao().find(other.localId, today.toString())!!.dirty)
+    }
+
     // --- Errors ---
 
     @Test fun serverRefusal_givesTheServersMessage() = runTest {
@@ -235,7 +340,7 @@ class TrackChangesTest {
 
     @Test fun droppedConnection_givesTheConnectionMessage() = runTest {
         // Twice, in case OkHttp retries the request on a fresh connection.
-        repeat(2) { rig.server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)) }
+        repeat(2) { rig.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START)) }
         rig.enqueueJson(list())
 
         assertEquals(

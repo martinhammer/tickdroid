@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.data.sync
 
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.ocsErrorMessage
+import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.domain.cleanTrackName
 import kotlinx.serialization.json.Json
@@ -39,6 +40,7 @@ sealed interface TrackChange {
 class TrackEditor @Inject constructor(
     private val syncManager: SyncManager,
     private val json: Json,
+    private val clock: Clock,
 ) {
     suspend fun create(name: String, type: TrackType, private: Boolean): TrackChange {
         val clean = cleanTrackName(name) ?: return TrackChange.Failed(EMPTY_NAME)
@@ -77,8 +79,22 @@ class TrackEditor @Inject constructor(
      * sort order and jump to the top), and an id deleted elsewhere is dropped.
      */
     suspend fun reorder(serverIdsInOrder: List<Long>): TrackChange = run { api ->
+        // Deliberately active tracks only (no includeArchived): reorder only ever involves them,
+        // and the server places every track it isn't sent after the listed ones.
         val serverOrder = api.getTracks().ocs.data.sortedBy { it.sortOrder }.map { it.id }
         api.reorderTracks(mergeOrder(serverIdsInOrder, serverOrder))
+        TrackChange.Done
+    }
+
+    /** Archives with the phone's own date. A 404 shows the server's message, as for rename. */
+    suspend fun archive(serverId: Long): TrackChange = run {
+        it.updateTrack(serverId, archived = true, archivedAt = clock.today().toString())
+        TrackChange.Done
+    }
+
+    /** Restores; the server puts the track at the end of the list. */
+    suspend fun restore(serverId: Long): TrackChange = run {
+        it.updateTrack(serverId, archived = false)
         TrackChange.Done
     }
 

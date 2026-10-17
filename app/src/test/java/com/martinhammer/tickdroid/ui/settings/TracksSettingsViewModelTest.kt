@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.ui.settings
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import com.martinhammer.tickdroid.data.sync.TrackChange
 import com.martinhammer.tickdroid.data.sync.TrackEditor
 import com.martinhammer.tickdroid.domain.Track
@@ -26,9 +27,11 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.time.LocalDate
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class TracksSettingsViewModelTest {
@@ -38,7 +41,9 @@ class TracksSettingsViewModelTest {
 
     private val tracks = MutableStateFlow(listOf(track(1), track(2), track(3)))
     private val online = MutableStateFlow(true)
-    private val trackRepository = mockk<TrackRepository> { every { observeTracks() } returns tracks }
+    private val trackRepository = mockk<TrackRepository> { every { observeAllTracks() } returns tracks }
+    private val archiveFlag = MutableStateFlow(true)
+    private val serverFeatures = mockk<ServerFeatures> { every { archivedTracks } returns archiveFlag }
     private val prefsRepository = mockk<TrackPrefsRepository> {
         every { observeAll() } returns MutableStateFlow(emptyMap<Long, TrackPrefs>())
     }
@@ -52,7 +57,7 @@ class TracksSettingsViewModelTest {
     private class Harness(val vm: TracksSettingsViewModel, val events: List<TracksSettingsEvent>)
 
     private fun TestScope.harness(): Harness {
-        val vm = TracksSettingsViewModel(trackRepository, prefsRepository, networkMonitor, editor)
+        val vm = TracksSettingsViewModel(trackRepository, prefsRepository, networkMonitor, editor, serverFeatures)
         val events = mutableListOf<TracksSettingsEvent>()
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.state.collect {} }
         backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { vm.online.collect {} }
@@ -175,5 +180,109 @@ class TracksSettingsViewModelTest {
         h.vm.moveUp(1) // pending was cleared after the timeout; back on Room's order (1 2 3)
         h.vm.moveUp(1) // first row: no-op
         coVerify(exactly = 1) { editor.reorder(any()) }
+    }
+
+    // --- Archived tracks ---
+
+    private fun archived(localId: Long, name: String, sortOrder: Int = localId.toInt()) =
+        track(localId, sortOrder).copy(name = name, archivedAt = LocalDate.of(2026, 8, 14))
+
+    @Test fun `rows split into active in Room order and archived sorted by name`() = runTest {
+        tracks.value = listOf(track(1), archived(4, "smoking"), track(2), archived(5, "Couch to 5k"), track(3))
+        val h = harness()
+        assertEquals(listOf(1L, 2L, 3L), h.vm.order())
+        assertEquals(listOf(5L, 4L), h.vm.state.value.archived.map { it.track.localId })
+        assertTrue(h.vm.state.value.archiveSupported)
+    }
+
+    @Test fun `without the flag nothing archived is shown`() = runTest {
+        archiveFlag.value = false
+        tracks.value = listOf(track(1), archived(4, "Smoking"))
+        val h = harness()
+        assertEquals(emptyList<TrackRowState>(), h.vm.state.value.archived)
+        assertEquals(listOf(1L), h.vm.order())
+        assertFalse(h.vm.state.value.archiveSupported)
+    }
+
+    @Test fun `reordering ignores archived ids and sends active ids only`() = runTest {
+        tracks.value = listOf(track(1), track(2), archived(4, "Smoking", sortOrder = 3), track(3, 4))
+        coEvery { editor.reorder(any()) } returns TrackChange.Done
+        val h = harness()
+        h.vm.move(1, 4) // onto an archived row: nothing moves
+        assertEquals(listOf(1L, 2L, 3L), h.vm.order())
+        h.vm.move(1, 3)
+        h.vm.commitOrder()
+        coVerify { editor.reorder(listOf(20L, 30L, 10L)) }
+    }
+
+    @Test fun `restore success waits for Room and sends Restored`() = runTest {
+        tracks.value = listOf(track(1), archived(4, "Smoking"))
+        coEvery { editor.restore(40) } coAnswers {
+            tracks.value = listOf(track(1), track(4, sortOrder = 9))
+            TrackChange.Done
+        }
+        val h = harness()
+        h.vm.restore(40)
+        assertEquals(listOf(TracksSettingsEvent.Restored(40)), h.events)
+        assertEquals(listOf(1L, 4L), h.vm.order())
+        assertNull(h.vm.state.value.restoringServerId)
+    }
+
+    @Test fun `restore failure sends RestoreFailed, signed out sends nothing`() = runTest {
+        tracks.value = listOf(archived(4, "Smoking"), archived(5, "Gym"))
+        coEvery { editor.restore(40) } returns TrackChange.Failed("Track not found")
+        coEvery { editor.restore(50) } returns TrackChange.SignedOut
+        val h = harness()
+        h.vm.restore(40)
+        h.vm.restore(50)
+        assertEquals(listOf(TracksSettingsEvent.RestoreFailed("Track not found")), h.events)
+        assertNull(h.vm.state.value.restoringServerId)
+    }
+
+    @Test fun `delete maps every outcome`() = runTest {
+        tracks.value = listOf(archived(4, "Smoking"), archived(5, "Gym"), archived(6, "Run"))
+        coEvery { editor.delete(40) } coAnswers {
+            tracks.value = listOf(archived(5, "Gym"), archived(6, "Run"))
+            TrackChange.Done
+        }
+        coEvery { editor.delete(50) } returns TrackChange.Failed("Couldn't save. Check your connection and try again.")
+        coEvery { editor.delete(60) } returns TrackChange.SignedOut
+        val h = harness()
+        h.vm.delete(40)
+        h.vm.delete(50)
+        h.vm.delete(60)
+        assertEquals(
+            listOf(
+                TracksSettingsEvent.Deleted,
+                TracksSettingsEvent.DeleteFailed("Couldn't save. Check your connection and try again."),
+            ),
+            h.events,
+        )
+        assertNull(h.vm.state.value.deletingServerId)
+    }
+
+    @Test fun `offline restore and delete never reach the editor`() = runTest {
+        tracks.value = listOf(archived(4, "Smoking"))
+        online.value = false
+        val h = harness()
+        h.vm.restore(40)
+        h.vm.delete(40)
+        coVerify(exactly = 0) { editor.restore(any()) }
+        coVerify(exactly = 0) { editor.delete(any()) }
+    }
+
+    @Test fun `one restore at a time`() = runTest {
+        tracks.value = listOf(archived(4, "Smoking"), archived(5, "Gym"))
+        val answer = CompletableDeferred<TrackChange>()
+        coEvery { editor.restore(any()) } coAnswers { answer.await() }
+        val h = harness()
+        h.vm.restore(40)
+        assertEquals(40L, h.vm.state.value.restoringServerId)
+        h.vm.restore(50)
+        h.vm.delete(50)
+        coVerify(exactly = 1) { editor.restore(any()) }
+        coVerify(exactly = 0) { editor.delete(any()) }
+        answer.complete(TrackChange.Failed("x"))
+        assertNull(h.vm.state.value.restoringServerId)
     }
 }

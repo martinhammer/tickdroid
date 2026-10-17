@@ -24,8 +24,15 @@ interface TickbuddyApi {
     @GET("/ocs/v2.php/cloud/capabilities")
     suspend fun getCapabilities(): OcsEnvelope<CapabilitiesData>
 
+    /**
+     * [includeArchived] true asks for archived tracks as well (Tickbuddy with capability
+     * `archivedTracks`). Null leaves the parameter out: active tracks only on a new server, every
+     * track on an older one. Only send true when the flag is set (see `ServerFeatures`).
+     */
     @GET("/ocs/v2.php/apps/tickbuddy/api/tracks")
-    suspend fun getTracks(): OcsEnvelope<List<TrackDto>>
+    suspend fun getTracks(
+        @Query("includeArchived") includeArchived: Boolean? = null,
+    ): OcsEnvelope<List<TrackDto>>
 
     @GET("/ocs/v2.php/apps/tickbuddy/api/ticks")
     suspend fun getTicks(
@@ -60,8 +67,10 @@ interface TickbuddyApi {
     ): OcsEnvelope<TrackDto>
 
     /**
-     * Pass exactly one of [name] / [isPrivate] (Retrofit omits null fields; a form body needs at
-     * least one). Never add `sortOrder`: the server has a unique index on (user_id, sort_order),
+     * Each call carries one change: [name], or [isPrivate], or [archived] (with [archivedAt] when
+     * archiving). Retrofit omits null fields; a form body needs at least one. `archived=true`
+     * stores [archivedAt] (YYYY-MM-DD, the phone's today) and leaves the sort order alone;
+     * `archived=false` restores and moves the track to the end. Never add `sortOrder`: the server has a unique index on (user_id, sort_order),
      * so a single-track move can collide. [reorderTracks] is the only way order changes.
      */
     @FormUrlEncoded
@@ -70,11 +79,14 @@ interface TickbuddyApi {
         @Path("id") id: Long,
         @Field("name") name: String? = null,
         @Field("private") isPrivate: Boolean? = null,
+        @Field("archived") archived: Boolean? = null,
+        @Field("archivedAt") archivedAt: String? = null,
     ): OcsEnvelope<TrackDto>
 
     /**
-     * Numbers the listed ids 1..n. Any track left out keeps a negative sort order and jumps to
-     * the top, so always send every track the server has (see `TrackEditor.reorder`).
+     * Numbers the listed ids 1..n. On a server before archiving, any track left out keeps a
+     * negative sort order and jumps to the top, so always send every active track the server has
+     * (see `TrackEditor.reorder`). Archived tracks are placed after the listed ones.
      */
     @FormUrlEncoded
     @PUT("/ocs/v2.php/apps/tickbuddy/api/tracks/reorder")

@@ -40,6 +40,7 @@ class WidgetTickHandlerTest {
         coEvery { trackRepository.findByServerId(any()) } returns null
         coEvery { trackRepository.findByServerId(101) } returns yesNo
         coEvery { trackRepository.findByServerId(102) } returns counter
+        coEvery { trackRepository.findByServerId(103) } returns yesNo.copy(localId = 3, serverId = 103, archivedAt = today.minusDays(3))
     }
 
     private fun assertNoWrite() {
@@ -89,6 +90,11 @@ class WidgetTickHandlerTest {
     @Test fun `a type mismatch is Ignored and writes nothing`() = runTest {
         assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(101, today, 1))
         assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(102, today, null))
+        assertNoWrite()
+    }
+
+    @Test fun `a tap on an archived track is TrackGone and writes nothing`() = runTest {
+        assertEquals(WidgetTickHandler.Outcome.TrackGone, handler.onTap(103, today, null))
         assertNoWrite()
     }
 }

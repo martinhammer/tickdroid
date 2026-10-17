@@ -63,6 +63,10 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets {
+        // MigrationTestHelper reads the exported Room schemas as test assets.
+        getByName("androidTest").assets.directories.add("$projectDir/schemas")
+    }
     packaging {
         resources {
             excludes += setOf(

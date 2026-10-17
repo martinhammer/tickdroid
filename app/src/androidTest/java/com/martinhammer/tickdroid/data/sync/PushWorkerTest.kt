@@ -91,7 +91,7 @@ class PushWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        val recorded = rig.server.takeRequest()
+        val recorded = rig.takeApiRequest()
         assertTrue(recorded.path!!.endsWith("/ticks/set"))
         val body = recorded.body.readUtf8()
         assertTrue("body=$body", body.contains("trackId=11") && body.contains("value=3"))
@@ -140,11 +140,11 @@ class PushWorkerTest {
         assertEquals(ListenableWorker.Result.success(), result)
 
         // Drain phase: only the GET should have been issued (no /toggle).
-        val first = rig.server.takeRequest()
+        val first = rig.takeApiRequest()
         assertTrue("expected getTicks, got ${first.path}", first.path!!.contains("/ticks?"))
         // Subsequent requests come from the post-drain pull (tracks + ticks). None should be /toggle.
-        val second = rig.server.takeRequest()
-        val third = rig.server.takeRequest()
+        val second = rig.takeApiRequest()
+        val third = rig.takeApiRequest()
         assertTrue(
             "no /toggle should be issued",
             !first.path!!.contains("toggle") &&
@@ -172,9 +172,9 @@ class PushWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.success(), result)
-        val probe = rig.server.takeRequest()
+        val probe = rig.takeApiRequest()
         assertTrue(probe.path!!.contains("/ticks?"))
-        val toggle = rig.server.takeRequest()
+        val toggle = rig.takeApiRequest()
         assertTrue("expected /toggle, got ${toggle.path}", toggle.path!!.endsWith("/ticks/toggle"))
 
         assertTrue(rig.db.tickDao().getDirty().isEmpty())
@@ -224,11 +224,12 @@ class PushWorkerTest {
 
         assertEquals(ListenableWorker.Result.success(), result)
         // Verify the drain did not issue any push requests — only the two pull requests.
-        val first = rig.server.takeRequest()
-        val second = rig.server.takeRequest()
+        val first = rig.takeApiRequest()
+        val second = rig.takeApiRequest()
         assertTrue(first.path!!.contains("/tracks") || first.path!!.contains("/ticks"))
         assertTrue(second.path!!.contains("/tracks") || second.path!!.contains("/ticks"))
-        assertEquals(0, rig.server.requestCount - 2)
+        // Plus the capabilities call the pull starts with.
+        assertEquals(0, rig.server.requestCount - 3)
     }
 
     @Test fun unsyncedTrack_skipsPushButLeavesDirty() = runTest {
@@ -264,7 +265,7 @@ class PushWorkerTest {
         val before = PushStatus.Error(SyncErrorKind.ServerUnreachable, "earlier attempt")
         rig.syncManager.reportPushStatus(before)
         // A response that never arrives in time, so the push is in flight when we cancel.
-        rig.server.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
+        rig.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
 
         val worker = buildWorker()
         val job = launch(Dispatchers.IO) { worker.doWork() }
@@ -274,5 +275,42 @@ class PushWorkerTest {
 
         assertEquals(before, rig.syncManager.pushStatus.value)
         assertTrue("the tick must still be waiting to go up", rig.db.tickDao().getDirty().isNotEmpty())
+    }
+
+    @Test fun yesNoTickOnATrackArchivedOnTheServer_queueMovesOn_noDirtyRowLeft() = runTest {
+        // Archived on the web while this tick waited. The server ignores the toggle (200 with
+        // the unchanged state), so the push leaves it dirty; the pull that follows marks the
+        // track archived and drops it.
+        rig.archivedTracks = true
+        val yesNo = seedTrack(serverId = 10L, type = "boolean")
+        val counter = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = null, trackLocalId = yesNo, date = today.toString(), value = 1, dirty = true),
+        )
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = null, trackLocalId = counter, date = today.toString(), value = 2, dirty = true),
+        )
+        rig.enqueueAsset("ocs/empty.json") // probe: off on the server
+        rig.enqueueAsset("ocs/toggle_to_off.json") // toggle ignored: still off
+        rig.enqueueJson("""{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"value":2}}}""")
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":10,"name":"T10","type":"boolean","sortOrder":0,"private":false,"archivedAt":"$today"},
+              {"id":11,"name":"T11","type":"counter","sortOrder":1,"private":false,"archivedAt":null}]}}""",
+        )
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":61,"trackId":11,"date":"$today","value":2}]}}""",
+        )
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(rig.takeApiRequest().path!!.contains("/ticks?"))
+        assertTrue(rig.takeApiRequest().path!!.endsWith("/ticks/toggle"))
+        assertTrue("the queue moved on to the counter", rig.takeApiRequest().path!!.endsWith("/ticks/set"))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertNull(rig.db.tickDao().find(yesNo, today.toString()))
+        assertEquals(2, rig.db.tickDao().find(counter, today.toString())!!.value)
     }
 }

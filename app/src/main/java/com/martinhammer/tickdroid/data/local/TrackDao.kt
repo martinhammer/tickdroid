@@ -16,6 +16,10 @@ interface TrackDao {
     @Query("SELECT * FROM tracks WHERE deleted = 0 ORDER BY sortOrder ASC, localId ASC")
     suspend fun getAll(): List<TrackEntity>
 
+    /** Active (not archived) tracks only, in journal order. */
+    @Query("SELECT * FROM tracks WHERE deleted = 0 AND archivedAt IS NULL ORDER BY sortOrder ASC, localId ASC")
+    fun observeActive(): Flow<List<TrackEntity>>
+
     @Query("SELECT * FROM tracks WHERE serverId = :serverId LIMIT 1")
     suspend fun findByServerId(serverId: Long): TrackEntity?
 

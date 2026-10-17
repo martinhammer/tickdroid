@@ -114,7 +114,7 @@ Same headers as every other call (`OCS-APIRequest: true`, `Accept: application/j
 
 - **`version`** — the installed app version string (from `info.xml`). Show it in an "About" / server-info screen.
 - **`apiVersion`** — an integer contract version for the client-facing API. Bumped on a breaking change. Branch on this, not on `version`, when you need to gate behavior.
-- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. Two flags matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
+- **`features`** — capability flags. Treat every flag as **optional and possibly absent**: if the whole `tickbuddy` key is missing, the app isn't installed on that server (fail the connection with a clear message). If a specific flag is missing, assume `false`. **`archivedTracks`** (Tickbuddy with archiving): tracks can be archived and restored, tracks carry `archivedAt`, and `GET /api/tracks` leaves archived tracks out unless asked with `includeArchived=true` (§3). Two flags matter for sync and will flip to `true` in a future backend (see §4): `syncDelta` (a "changed since X" delta endpoint exists) and `counterIncrement` (a commutative increment endpoint exists). Gate those code paths on the flags so the app lights them up automatically when the server is upgraded — no client release required.
 
 Recommended usage: fetch capabilities once right after credential validation and cache it (refresh on app update or daily). A present `data.capabilities.tickbuddy` also doubles as a clean "is Tickbuddy installed here?" check during onboarding.
 
@@ -132,11 +132,13 @@ name        string     1..? chars, trimmed, non-empty
 type        enum       "boolean" | "counter"    (immutable after create)
 sortOrder   int        client-influenced display order
 private     bool       hides from default views; export must opt-in
+archivedAt  string?    "YYYY-MM-DD" the day it was archived, or null (active). Only with `archivedTracks`.
 ```
 
 - **Max 99 tracks per user.** Creating the 100th returns `403` with `{message: "Maximum of 99 tracks reached"}`.
 - **Track `type` is immutable.** `PUT /api/tracks/{id}` silently ignores any `type` field. If a user wants a different type, they must delete and recreate.
 - **Deleting a track cascades**: all its ticks are deleted server-side in the same transaction.
+- **Archiving keeps everything** (`archivedTracks` flag): the track and its ticks stay, it is just no longer tracked. The 99-track limit counts archived tracks.
 
 ### Tick
 
@@ -169,6 +171,9 @@ All paths below are relative to `{nextcloudBaseUrl}/ocs/v2.php/apps/tickbuddy`. 
 #### `GET /api/tracks`
 List all tracks for the current user. Returns tracks in `sortOrder` ascending, then `id`.
 
+Query params (only with the `archivedTracks` flag):
+- `includeArchived` (`true`) — include archived tracks. Without it, archived tracks are left out. A server without the flag ignores the parameter and returns every track (none can be archived).
+
 Response `data`:
 ```json
 [
@@ -196,6 +201,8 @@ Form params (any subset):
 - `name` (string, trimmed, non-empty if provided)
 - `sortOrder` (int) — usually set via `/reorder` instead
 - `private` (boolean; accepts `true`/`false`/`1`/`0`/`yes`/`no` via PHP `FILTER_VALIDATE_BOOLEAN`)
+- `archived` (boolean, `archivedTracks` flag only) — `true` archives, `false` restores. Archiving leaves `sortOrder` alone; restoring clears `archivedAt` and moves the track to the end. `false` on an active track does nothing.
+- `archivedAt` (`YYYY-MM-DD`, with `archived=true`) — the archive date, the client's local today. A bad date is `400` "Archive date must be a date as YYYY-MM-DD".
 
 `type` is silently ignored if sent.
 
@@ -208,6 +215,8 @@ Form params:
 - `trackIds[]` (array of ints, required, non-empty). In form-encoded bodies this is `trackIds[]=1&trackIds[]=5&trackIds[]=3`.
 
 Response: `200` + full list of the user's tracks in the new order.
+
+With the `archivedTracks` flag, tracks not in `trackIds[]` (archived ones, or any you left out) are placed after the listed ones, so sending the active tracks is enough.
 
 #### `DELETE /api/tracks/{id}`
 Delete a track and all its ticks. `204` on success, `404` if not found.
@@ -348,6 +357,7 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **`OCS-APIRequest: true` is not optional.** Without it, Nextcloud's router may return HTML login pages or 404s instead of JSON, and the error will be cryptic. Hardcode this in your HTTP client.
 - **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
 - **Reorder is destructive.** `PUT /api/tracks/reorder` rewrites `sortOrder` on every listed track to `1..N`. If you omit tracks, their sort orders are untouched — which can produce duplicates. Always send the full list.
+- **Ticks on archived tracks are read-only** (`archivedTracks` flag). `POST /api/ticks/toggle` and `/set` on an archived track answer `200` with the unchanged state rather than an error. A client that compares the answer with what it wanted (as the toggle replay-safety check does) will see a mismatch; drop such queued ticks once it knows the track is archived. `GET /api/ticks` still returns archived tracks' ticks.
 - **`value` on boolean ticks is always 1.** Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
 - **Date range query is inclusive on both ends.** `from=2026-04-01&to=2026-04-30` includes both the 1st and the 30th.
 - **Private tracks are soft-hidden, not encrypted.** Any client that reads `GET /api/tracks` sees them. The `private` flag controls default visibility in the web UI (there's a "Show private tracks" toggle) and whether they appear in exports. The mobile app should offer the same UX — a toggle/PIN gate on showing private tracks — but do not rely on `private` for any security claim.

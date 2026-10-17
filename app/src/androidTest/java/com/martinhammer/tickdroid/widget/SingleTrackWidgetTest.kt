@@ -10,7 +10,13 @@ import androidx.glance.testing.unit.hasContentDescription
 import androidx.glance.testing.unit.hasTestTag
 import androidx.glance.testing.unit.hasText
 import androidx.glance.testing.unit.hasTextEqualTo
+import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
+import com.martinhammer.tickdroid.data.local.TickdroidDatabase
+import com.martinhammer.tickdroid.data.local.TrackEntity
+import com.martinhammer.tickdroid.data.repository.TrackRepository
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.addOneParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.coffee
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.exercise
@@ -78,5 +84,40 @@ class SingleTrackWidgetTest {
     @Test fun no_offline_badge_when_synced() = runGlanceAppWidgetUnitTest {
         render(ButtonModel.Content(today, exercise))
         onNode(hasTestTag("widgetOffline")).assertDoesNotExist()
+    }
+
+    @Test fun archived_in_room_draws_choose_track_restored_draws_the_track() {
+        val db = Room.inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java).build()
+        try {
+            val repo = TrackRepository(db.trackDao())
+            val config = WidgetConfig.Button(trackServerId = 101)
+            fun model(archivedAt: String?): ButtonModel = runBlocking {
+                val existing = db.trackDao().findByServerId(101)
+                if (existing == null) {
+                    db.trackDao().insert(
+                        TrackEntity(serverId = 101, name = "Exercise", type = "boolean", sortOrder = 0, private = false, archivedAt = archivedAt),
+                    )
+                } else {
+                    db.trackDao().update(existing.copy(archivedAt = archivedAt))
+                }
+                // What WidgetRefresher feeds the models: observeTracks(), active tracks only.
+                buildButtonModel(true, today, repo.observeTracks().first(), emptyMap(), emptyMap(), config)
+            }
+
+            val archived = model("2026-10-01")
+            runGlanceAppWidgetUnitTest {
+                render(archived)
+                onNode(hasText("Choose track")).assertExists()
+            }
+
+            val restored = model(null)
+            runGlanceAppWidgetUnitTest {
+                render(restored)
+                onNode(hasText("Choose track")).assertDoesNotExist()
+                onNode(hasTextEqualTo("EX")).assertExists()
+            }
+        } finally {
+            db.close()
+        }
     }
 }

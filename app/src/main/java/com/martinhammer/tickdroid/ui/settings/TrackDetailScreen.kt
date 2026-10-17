@@ -37,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -73,6 +74,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun TrackDetailScreen(
     onBack: () -> Unit,
+    onArchived: (serverId: Long) -> Unit = { onBack() },
     viewModel: TrackDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -84,6 +86,7 @@ fun TrackDetailScreen(
     var showHelp by rememberSaveable { mutableStateOf(false) }
     var showRename by rememberSaveable { mutableStateOf(false) }
     var showDelete by rememberSaveable { mutableStateOf(false) }
+    var showArchive by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
     val offlineToast = { Toast.makeText(context, OfflineMessage, Toast.LENGTH_SHORT).show() }
     val toast = { text: String -> Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
@@ -99,6 +102,15 @@ fun TrackDetailScreen(
                     showDelete = false
                     toast(event.text)
                 }
+                // As for Deleted: a Back pressed during the archive must not pop the list too.
+                // The list then simply doesn't open its Archived row.
+                is TrackDetailEvent.Archived ->
+                    if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) onArchived(event.serverId)
+                is TrackDetailEvent.ArchiveFailed -> {
+                    showArchive = false
+                    showDelete = false
+                    toast(event.text)
+                }
                 is TrackDetailEvent.Toast -> toast(event.text)
             }
         }
@@ -107,7 +119,7 @@ fun TrackDetailScreen(
     val track = state.track
     // The three server controls: offline they're greyed out (with the toast on tap); an
     // unsynced track or a change in flight disables them outright.
-    val serverEditable = track?.serverId != null && !state.deleting
+    val serverEditable = track?.serverId != null && !state.deleting && !state.archiving
     Scaffold(
         topBar = {
             TopAppBar(
@@ -173,6 +185,8 @@ fun TrackDetailScreen(
                     onEmojiChange = viewModel::setEmoji,
                     onMoreEmojis = { showPicker = true },
                     onDelete = { showDelete = true },
+                    archiveSupported = state.archiveSupported,
+                    onArchive = { showArchive = true },
                     onOfflineTap = offlineToast,
                 )
             }
@@ -193,6 +207,20 @@ fun TrackDetailScreen(
             deleting = state.deleting,
             onConfirm = { if (online) viewModel.delete() else offlineToast() },
             onDismiss = { showDelete = false },
+            onArchiveInstead = if (state.archiveSupported) {
+                { if (online) viewModel.archive() else offlineToast() }
+            } else {
+                null
+            },
+            archiving = state.archiving,
+        )
+    }
+    if (showArchive && track != null) {
+        ArchiveTrackDialog(
+            name = track.name,
+            archiving = state.archiving,
+            onConfirm = { if (online) viewModel.archive() else offlineToast() },
+            onDismiss = { showArchive = false },
         )
     }
     if (showPicker) {
@@ -207,7 +235,7 @@ fun TrackDetailScreen(
         )
     }
     if (showHelp) {
-        TracksHelpSheet(onDismiss = { showHelp = false })
+        TracksHelpSheet(archiveSupported = state.archiveSupported, onDismiss = { showHelp = false })
     }
 }
 
@@ -264,6 +292,8 @@ internal fun TrackDetailContent(
     onMoreEmojis: () -> Unit,
     onDelete: () -> Unit,
     onOfflineTap: () -> Unit,
+    archiveSupported: Boolean = false,
+    onArchive: () -> Unit = {},
 ) {
     val unsynced = track.serverId == null
 
@@ -316,6 +346,28 @@ internal fun TrackDetailContent(
             onMore = onMoreEmojis,
         )
         Spacer(Modifier.height(48.dp))
+
+        if (archiveSupported) {
+            // The same full-width shape as Delete, in the theme's neutral tonal colours: nothing
+            // is lost by archiving.
+            OfflineGuard(
+                online = online,
+                onBlockedTap = onOfflineTap,
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .widthIn(max = MaxContentWidth)
+                    .fillMaxWidth(),
+            ) { enabled ->
+                FilledTonalButton(
+                    onClick = onArchive,
+                    enabled = enabled && serverEditable,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Archive track")
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+        }
 
         // Styled like Account's "Log out".
         OfflineGuard(

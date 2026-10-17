@@ -9,4 +9,6 @@ data class TrackDto(
     val type: String,
     val sortOrder: Int,
     val private: Boolean,
+    /** YYYY-MM-DD or null; absent on servers before archiving (Tickbuddy step 5a). */
+    val archivedAt: String? = null,
 )

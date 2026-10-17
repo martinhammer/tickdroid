@@ -34,6 +34,10 @@ interface TickDao {
     @Query("SELECT * FROM ticks WHERE dirty = 1")
     suspend fun getDirty(): List<TickEntity>
 
+    /** Unsent changes to archived tracks' ticks: the server ignores them, so they are dropped. */
+    @Query("DELETE FROM ticks WHERE dirty = 1 AND trackLocalId IN (SELECT localId FROM tracks WHERE archivedAt IS NOT NULL)")
+    suspend fun deleteDirtyOfArchivedTracks(): Int
+
     @Query("SELECT EXISTS(SELECT 1 FROM ticks WHERE dirty = 1)")
     fun observeHasDirty(): Flow<Boolean>
 }

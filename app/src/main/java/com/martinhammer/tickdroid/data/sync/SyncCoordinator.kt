@@ -28,6 +28,7 @@ class SyncCoordinator @Inject constructor(
     private val database: TickdroidDatabase,
     private val uiPreferences: UiPreferences,
     private val widgetConfigStore: WidgetConfigStore,
+    private val serverFeatures: ServerFeatures,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     @Volatile private var started = false
@@ -76,6 +77,7 @@ class SyncCoordinator @Inject constructor(
                                     database.clearAllTables()
                                 }
                                 uiPreferences.clear()
+                                serverFeatures.clear()
                                 // Widgets redraw by themselves: WidgetRefresher watches auth
                                 // state, Room and this store.
                                 widgetConfigStore.clear()

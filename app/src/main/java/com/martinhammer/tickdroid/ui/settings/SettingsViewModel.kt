@@ -10,6 +10,7 @@ import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,7 @@ class SettingsViewModel @Inject constructor(
     private val uiPreferences: UiPreferences,
     private val api: TickbuddyApi,
     private val networkMonitor: NetworkMonitor,
+    private val serverFeatures: ServerFeatures,
 ) : ViewModel() {
 
     val account: AccountInfo =
@@ -67,7 +69,9 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _serverVersion.value = ServerVersionState.Loading
             _serverVersion.value = try {
-                val version = api.getCapabilities().ocs.data.capabilities?.tickbuddy?.version
+                val tickbuddy = api.getCapabilities().ocs.data.capabilities?.tickbuddy
+                serverFeatures.update(tickbuddy)
+                val version = tickbuddy?.version
                 if (version.isNullOrBlank()) ServerVersionState.Legacy
                 else ServerVersionState.Known(version)
             } catch (e: Exception) {
