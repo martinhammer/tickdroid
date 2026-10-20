@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.data.sync
 
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.ocsErrorMessage
+import com.martinhammer.tickdroid.data.remote.ocsErrorReason
 import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.domain.cleanTrackName
@@ -86,8 +87,12 @@ class TrackEditor @Inject constructor(
         TrackChange.Done
     }
 
-    /** Archives with the phone's own date. A 404 shows the server's message, as for rename. */
-    suspend fun archive(serverId: Long): TrackChange = run {
+    /**
+     * Archives with the phone's own date. A 404 shows the server's message, as for rename; a 423
+     * because it is already archived (elsewhere, since this screen read it) is Done, and the
+     * track keeps the other device's date.
+     */
+    suspend fun archive(serverId: Long): TrackChange = run(alreadyArchivedIsDone = true) {
         it.updateTrack(serverId, archived = true, archivedAt = clock.today().toString())
         TrackChange.Done
     }
@@ -110,6 +115,7 @@ class TrackEditor @Inject constructor(
      */
     private suspend fun run(
         notFoundIsDone: Boolean = false,
+        alreadyArchivedIsDone: Boolean = false,
         change: suspend (TickbuddyApi) -> TrackChange,
     ): TrackChange = try {
         syncManager.changeTracks(change)
@@ -120,13 +126,17 @@ class TrackEditor @Inject constructor(
     } catch (_: IOException) {
         TrackChange.Failed("Couldn't save. Check your connection and try again.")
     } catch (e: HttpException) {
+        val body = e.response()?.errorBody()?.string() // can only be read once
         when {
             e.code() == 401 -> TrackChange.SignedOut
             // Already gone on the server, which is what a delete asked for.
             e.code() == 404 && notFoundIsDone -> TrackChange.Done
+            // Archived elsewhere since this screen read it: what the user asked for is already true.
+            e.code() == 423 && alreadyArchivedIsDone && ocsErrorReason(body, json) == "archived" -> TrackChange.Done
+            // Any other 423 (rename, Private, reorder on a track archived elsewhere) is a refusal
+            // like the rest: the server's message, then the re-read marks the track archived.
             else -> TrackChange.Failed(
-                ocsErrorMessage(e.response()?.errorBody()?.string(), json)
-                    ?: "Couldn't save. Tickbuddy returned an error (HTTP ${e.code()}).",
+                ocsErrorMessage(body, json) ?: "Couldn't save. Tickbuddy returned an error (HTTP ${e.code()}).",
             )
         }
     } catch (_: Exception) {

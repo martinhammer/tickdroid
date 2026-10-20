@@ -47,6 +47,12 @@ Every request MUST include:
 | `Accept` | `application/json` | Forces JSON response envelope. |
 | `Authorization` | `Basic …` | See above. |
 
+On calls to Tickbuddy's own API (`/ocs/v2.php/apps/tickbuddy/api/…`), also send:
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Prefer` | `handling=strict` | RFC 7240. Asks Tickbuddy to refuse a write it can't apply (`423`, see §5) instead of answering a quiet `200`. Older Tickbuddy versions ignore it. Tickdroid sends it on every Tickbuddy API request, reads included, and not on `/cloud/capabilities` or `/cloud/user`. |
+
 For `POST`/`PUT` requests sending form data, also set `Content-Type: application/x-www-form-urlencoded`. The backend reads params via `$this->request->getParam(...)`, which works with form-encoded bodies AND JSON bodies (Nextcloud merges both into the same param bag). Prefer form-encoded — it's what the existing web frontend uses and is well tested.
 
 ### OCS response envelope
@@ -68,6 +74,8 @@ Every OCS response is wrapped. A successful `GET /api/tracks` returns:
 
 Your HTTP client should unwrap `response.ocs.data` before handing it to the rest of the app. Error responses have the same envelope with `status: "failure"` and `statuscode` matching the HTTP status.
 
+Tickbuddy's own errors carry `ocs.data` as `{message, reason}`: `message` is user-facing text, `reason` a machine-readable string (`archived`, `trackNotFound`, `invalidValue`, `wrongTrackType`, …). Nextcloud's own errors (for example the `404` for every Tickbuddy URL while the app is disabled, as during a Nextcloud upgrade), a proxy's, and those of older Tickbuddy versions have no `reason` (`data` is often `[]`). That absence is how a client tells "Tickbuddy refused this" from "Tickbuddy isn't there".
+
 HTTP status codes used by the backend:
 
 | Code | Meaning |
@@ -80,6 +88,7 @@ HTTP status codes used by the backend:
 | 403 | Track limit reached |
 | 404 | Track not found |
 | 409 | DB constraint conflict (e.g. duplicate on reorder) |
+| 423 | Locked: a write to a read-only (archived) track, only when the request sent `Prefer: handling=strict` |
 
 ### CSRF
 
@@ -336,6 +345,8 @@ Walk dirty rows in order: **track creates → track updates → track deletes �
 - Track deleted: `DELETE /api/tracks/{server_id}`; on 404 treat as already gone.
 - Tick toggled (boolean): `POST /api/ticks/toggle` — this is idempotent *per tap*, not per state. If you replay a queued toggle that was already applied, you'll flip it back. Safer pattern: instead of queuing "toggle", queue the **desired end state** (`ticked: true/false`) and on push compare with server state. A pragmatic shortcut: after queueing a toggle, immediately fetch the current server value before pushing, and only toggle if it differs.
 - Tick counter set: `POST /api/ticks/set` with the desired value — this IS idempotent, always safe to replay.
+- A tick write refused with `423` (track archived elsewhere): drop that queued tick, carry on with the rest, pull at the end, and tell the user once per track. Tickdroid: "*Track name* is archived, so the change wasn't saved."
+- A tick write answered `404` or `400` **with** a `reason` (track deleted elsewhere, or a bad value): drop that queued tick and carry on, silently. **Without** a `reason` it isn't Tickbuddy's answer (Tickbuddy disabled, a proxy, an older version): keep the tick and retry, or a Nextcloud upgrade would lose queued ticks.
 
 ### Conflict resolution
 
@@ -348,7 +359,7 @@ Counter ticks are the trickiest case — if both devices incremented the same ti
 
 ### Offline queue
 
-All writes go to the local DB first (optimistic). A `WorkManager` job with `NetworkType.CONNECTED` constraint drains the dirty queue. On `401` stop the worker and surface a re-auth prompt. On `5xx` exponential-backoff retry.
+All writes go to the local DB first (optimistic). A `WorkManager` job with `NetworkType.CONNECTED` constraint drains the dirty queue. On `401` stop the worker and surface a re-auth prompt. `423`, and `404` / `400` with a `reason`, drop only that row (see Push). Everything else (`5xx`, other `4xx`, network errors) stops the drain for an exponential-backoff retry.
 
 ---
 
@@ -357,7 +368,7 @@ All writes go to the local DB first (optimistic). A `WorkManager` job with `Netw
 - **`OCS-APIRequest: true` is not optional.** Without it, Nextcloud's router may return HTML login pages or 404s instead of JSON, and the error will be cryptic. Hardcode this in your HTTP client.
 - **Boolean encoding.** PHP's `FILTER_VALIDATE_BOOLEAN` accepts `true|false|1|0|yes|no|on|off`. Send `"true"`/`"false"` strings to be safe.
 - **Reorder is destructive.** `PUT /api/tracks/reorder` rewrites `sortOrder` on every listed track to `1..N`. If you omit tracks, their sort orders are untouched — which can produce duplicates. Always send the full list.
-- **Ticks on archived tracks are read-only** (`archivedTracks` flag). `POST /api/ticks/toggle` and `/set` on an archived track answer `200` with the unchanged state rather than an error. A client that compares the answer with what it wanted (as the toggle replay-safety check does) will see a mismatch; drop such queued ticks once it knows the track is archived. `GET /api/ticks` still returns archived tracks' ticks.
+- **Ticks on archived tracks are read-only** (`archivedTracks` flag). With `Prefer: handling=strict`, `POST /api/ticks/toggle` and `/set` on an archived track answer `423` with `{message, reason: "archived"}`; so do rename, `private`, reorder and re-archive of an archived track (restore and delete never are). Without the header (or on an older Tickbuddy) they answer `200` with the unchanged state rather than an error. A client that compares the answer with what it wanted (as the toggle replay-safety check does) will see a mismatch; drop such queued ticks once it knows the track is archived. `GET /api/ticks` still returns archived tracks' ticks.
 - **`value` on boolean ticks is always 1.** Don't write UI logic that assumes it could be 2. Don't send a value to `/toggle`.
 - **Date range query is inclusive on both ends.** `from=2026-04-01&to=2026-04-30` includes both the 1st and the 30th.
 - **Private tracks are soft-hidden, not encrypted.** Any client that reads `GET /api/tracks` sees them. The `private` flag controls default visibility in the web UI (there's a "Show private tracks" toggle) and whether they appear in exports. The mobile app should offer the same UX — a toggle/PIN gate on showing private tracks — but do not rely on `private` for any security claim.

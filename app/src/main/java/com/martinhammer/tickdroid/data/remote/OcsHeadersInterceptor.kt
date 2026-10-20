@@ -8,10 +8,18 @@ import javax.inject.Singleton
 @Singleton
 class OcsHeadersInterceptor @Inject constructor() : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
-        val request = chain.request().newBuilder()
+        val original = chain.request()
+        val builder = original.newBuilder()
             .header("OCS-APIRequest", "true")
             .header("Accept", "application/json")
-            .build()
-        return chain.proceed(request)
+        // RFC 7240: ask Tickbuddy to refuse a write it can't apply (423) rather than answer a quiet
+        // 200. Tickbuddy's API only; an older Tickbuddy ignores it.
+        if (TICKBUDDY_API in original.url.encodedPath) builder.header("Prefer", "handling=strict")
+        return chain.proceed(builder.build())
+    }
+
+    private companion object {
+        // Matched anywhere in the path: BasicAuthInterceptor runs first and may add a subpath.
+        const val TICKBUDDY_API = "/ocs/v2.php/apps/tickbuddy/api/"
     }
 }

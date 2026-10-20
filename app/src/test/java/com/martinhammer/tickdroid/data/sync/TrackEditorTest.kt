@@ -187,4 +187,37 @@ class TrackEditorTest {
         assertEquals(TrackChange.Failed("Couldn't save. Check your connection and try again."), editor.restore(4))
         assertEquals(TrackChange.Failed("Couldn't save. Tickbuddy returned an error (HTTP 500)."), editor.restore(5))
     }
+
+    // --- 423 (track archived elsewhere) ---
+
+    private fun locked(reason: String, message: String) =
+        """{"ocs":{"meta":{"status":"failure","statuscode":423,"message":""},""" +
+            """"data":{"message":"$message","reason":"$reason"}}}"""
+
+    @Test fun `archive answered 423 already archived is Done`() = runTest {
+        coEvery { api.updateTrack(4, archived = true, archivedAt = any()) } throws
+            httpError(423, locked("archived", "T4 is archived, so nothing was changed"))
+        assertEquals(TrackChange.Done, editor.archive(4))
+    }
+
+    @Test fun `archive answered 423 for another reason shows the server's message`() = runTest {
+        coEvery { api.updateTrack(4, archived = true, archivedAt = any()) } throws
+            httpError(423, locked("immutable", "T4 can't be changed"))
+        assertEquals(TrackChange.Failed("T4 can't be changed"), editor.archive(4))
+    }
+
+    @Test fun `rename and private answered 423 show the server's message`() = runTest {
+        coEvery { api.updateTrack(4, name = "New") } throws
+            httpError(423, locked("archived", "T4 is archived, so nothing was changed"))
+        coEvery { api.updateTrack(4, isPrivate = true) } throws
+            httpError(423, locked("archived", "T4 is archived, so nothing was changed"))
+        assertEquals(TrackChange.Failed("T4 is archived, so nothing was changed"), editor.rename(4, "New"))
+        assertEquals(TrackChange.Failed("T4 is archived, so nothing was changed"), editor.setPrivate(4, true))
+    }
+
+    @Test fun `restore answered 423 is not Done`() = runTest {
+        // The server never refuses a restore; if something did, it is a failure like any other.
+        coEvery { api.updateTrack(4, archived = false) } throws httpError(423, locked("archived", "Nope"))
+        assertEquals(TrackChange.Failed("Nope"), editor.restore(4))
+    }
 }

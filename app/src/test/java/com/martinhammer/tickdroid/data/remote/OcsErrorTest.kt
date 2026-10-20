@@ -41,4 +41,37 @@ class OcsErrorTest {
         assertNull(ocsErrorMessage(null, json))
         assertNull(ocsErrorMessage("""{"error":"x"}""", json))
     }
+
+    // --- reason ---
+
+    private fun reasonBody(data: String) =
+        """{"ocs":{"meta":{"status":"failure","statuscode":423,"message":""},"data":$data}}"""
+
+    @Test fun `reason is read from ocs data`() {
+        assertEquals(
+            "archived",
+            ocsErrorReason(reasonBody("""{"message":"Exercise is archived","reason":"archived"}"""), json),
+        )
+    }
+
+    @Test fun `missing, blank or non-string reason gives null`() {
+        assertNull(ocsErrorReason(reasonBody("[]"), json))
+        assertNull(ocsErrorReason(reasonBody("""{"message":"Track not found"}"""), json))
+        assertNull(ocsErrorReason(reasonBody("""{"reason":"  "}"""), json))
+        assertNull(ocsErrorReason(reasonBody("""{"reason":404}"""), json))
+        assertNull(ocsErrorReason(reasonBody("""{"reason":null}"""), json))
+        assertNull(ocsErrorReason(reasonBody("""{"reason":{"code":"archived"}}"""), json))
+    }
+
+    @Test fun `reason in meta is not a Tickbuddy reason`() {
+        assertNull(
+            ocsErrorReason("""{"ocs":{"meta":{"status":"failure","reason":"x"},"data":[]}}""", json),
+        )
+    }
+
+    @Test fun `html and empty bodies give no reason`() {
+        assertNull(ocsErrorReason("<html><body>404 Not Found</body></html>", json))
+        assertNull(ocsErrorReason("", json))
+        assertNull(ocsErrorReason(null, json))
+    }
 }

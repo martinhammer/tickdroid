@@ -320,6 +320,44 @@ class TrackChangesTest {
         assertTrue("other tracks' unsent ticks stay", rig.db.tickDao().find(other.localId, today.toString())!!.dirty)
     }
 
+    @Test fun archive_answered423AlreadyArchived_isDone_keepsTheServersDate() = runTest {
+        seedWithArchive()
+        val elsewhere = pages.copy(archivedAt = "2026-04-18")
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"failure","statuscode":423,"message":""},""" +
+                """"data":{"message":"Pages read is archived, so nothing was changed","reason":"archived"}}}""",
+            code = 423,
+        )
+        rig.enqueueJson(list(meditate, elsewhere, mood))
+
+        assertEquals(TrackChange.Done, editor.archive(11))
+
+        val put = take()
+        assertEquals("handling=strict", put.getHeader("Prefer"))
+        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("2026-04-18", rig.db.trackDao().findByServerId(11)!!.archivedAt)
+    }
+
+    @Test fun rename_answered423_givesTheServersMessage_rereadStillRuns() = runTest {
+        seedWithArchive()
+        val elsewhere = pages.copy(archivedAt = "2026-04-18")
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"failure","statuscode":423,"message":""},""" +
+                """"data":{"message":"Pages read is archived, so nothing was changed","reason":"archived"}}}""",
+            code = 423,
+        )
+        rig.enqueueJson(list(meditate, elsewhere, mood))
+
+        assertEquals(
+            TrackChange.Failed("Pages read is archived, so nothing was changed"),
+            editor.rename(11, "Books"),
+        )
+
+        assertEquals("PUT", take().method)
+        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("2026-04-18", rig.db.trackDao().findByServerId(11)!!.archivedAt)
+    }
+
     // --- Errors ---
 
     @Test fun serverRefusal_givesTheServersMessage() = runTest {

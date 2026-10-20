@@ -14,18 +14,30 @@ import kotlinx.serialization.json.JsonPrimitive
  * all (a reverse proxy's HTML error page) gives null, so the caller's fallback applies.
  */
 internal fun ocsErrorMessage(body: String?, json: Json): String? {
+    val ocs = ocsObject(body, json) ?: return null
+    return ocs.string("data", "message") ?: ocs.string("meta", "message")
+}
+
+/**
+ * Tickbuddy's machine-readable reason in a failed reply, `ocs.data.reason` (`archived`,
+ * `trackNotFound`, …), else null. Blank counts as absent. Nextcloud's own errors, a proxy's and
+ * an older Tickbuddy's never carry one, which is what lets the push tell them apart.
+ */
+internal fun ocsErrorReason(body: String?, json: Json): String? =
+    ocsObject(body, json)?.string("data", "reason")
+
+private fun ocsObject(body: String?, json: Json): JsonObject? {
     if (body.isNullOrBlank()) return null
     val root = try {
         json.parseToJsonElement(body)
     } catch (_: Exception) {
         return null
     }
-    val ocs = (root as? JsonObject)?.get("ocs") as? JsonObject ?: return null
-    return ocs.message("data") ?: ocs.message("meta")
+    return (root as? JsonObject)?.get("ocs") as? JsonObject
 }
 
-private fun JsonObject.message(child: String): String? {
-    val value = ((get(child) as? JsonObject)?.get("message") as? JsonPrimitive) ?: return null
+private fun JsonObject.string(child: String, field: String): String? {
+    val value = ((get(child) as? JsonObject)?.get(field) as? JsonPrimitive) ?: return null
     if (!value.isString) return null
     return value.content.takeIf { it.isNotBlank() }
 }

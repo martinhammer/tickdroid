@@ -34,6 +34,14 @@ class PushWorkerTest {
         override fun nowMillis(): Long = 0L
     }
 
+    /** Records what the worker would toast. */
+    private val notices = object : PushNotices(InstrumentationRegistry.getInstrumentation().targetContext) {
+        val shown = mutableListOf<String>()
+        override suspend fun show(text: String) {
+            shown += text
+        }
+    }
+
     @Before fun setUp() {
         rig = SyncTestRig().also { it.assertSignedIn() }
     }
@@ -60,6 +68,8 @@ class PushWorkerTest {
                     authRepository = rig.authRepository,
                     syncManager = rig.syncManager,
                     clock = fixedClock,
+                    json = rig.json,
+                    pushNotices = notices,
                 )
             })
             .build()
@@ -193,6 +203,7 @@ class PushWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.failure(), result)
+        assertEquals(emptyList<String>(), notices.shown)
         // AuthRepository should now be SignedOut.
         val state = rig.authRepository.state.value
         assertTrue("expected SignedOut, was $state", state is com.martinhammer.tickdroid.data.auth.AuthState.SignedOut)
@@ -211,6 +222,7 @@ class PushWorkerTest {
         val result = buildWorker().doWork()
 
         assertEquals(ListenableWorker.Result.retry(), result)
+        assertEquals(emptyList<String>(), notices.shown)
         // Row should remain dirty.
         val row = rig.db.tickDao().find(trackId, today.toString())!!
         assertTrue(row.dirty)
@@ -312,5 +324,184 @@ class PushWorkerTest {
         assertTrue(rig.db.tickDao().getDirty().isEmpty())
         assertNull(rig.db.tickDao().find(yesNo, today.toString()))
         assertEquals(2, rig.db.tickDao().find(counter, today.toString())!!.value)
+        assertEquals("an older server's quiet 200 shows nothing", emptyList<String>(), notices.shown)
+    }
+
+    // --- Refused writes (Prefer: handling=strict) ---
+
+    private fun refusal(code: Int, reason: String?, message: String = "") =
+        """{"ocs":{"meta":{"status":"failure","statuscode":$code,"message":""},"data":""" +
+            (if (reason == null) "[]" else """{"message":"$message","reason":"$reason"}""") + "}}"
+
+    private fun archivedRefusal(name: String) = refusal(423, "archived", "$name is archived, so nothing was changed")
+
+    private fun setOk(value: Int) = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"value":$value}}}"""
+
+    private suspend fun seedDirty(trackLocalId: Long, date: LocalDate = today, value: Int = 1) {
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = null, trackLocalId = trackLocalId, date = date.toString(), value = value, dirty = true),
+        )
+    }
+
+    @Test fun refusedYesNo_queueMovesOn_rowDropped_pullRuns_oneNotice() = runTest {
+        val yesNo = seedTrack(serverId = 10L, type = "boolean")
+        val counter = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(yesNo)
+        seedDirty(counter, value = 2)
+        rig.enqueueAsset("ocs/empty.json") // probe: off on the server
+        rig.enqueueJson(archivedRefusal("T10"), code = 423) // toggle refused
+        rig.enqueueJson(setOk(2))
+        enqueueDailyPullAfterPush()
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(rig.takeApiRequest().path!!.contains("/ticks?"))
+        val toggle = rig.takeApiRequest()
+        assertTrue(toggle.path!!.endsWith("/ticks/toggle"))
+        assertEquals("handling=strict", toggle.getHeader("Prefer"))
+        val set = rig.takeApiRequest()
+        assertTrue("the queue moved on to the counter", set.path!!.endsWith("/ticks/set"))
+        assertEquals("handling=strict", set.getHeader("Prefer"))
+        assertTrue("the pull ran", rig.takeApiRequest().path!!.contains("/tracks"))
+        assertTrue(rig.takeApiRequest().path!!.contains("/ticks?"))
+        assertNull(rig.db.tickDao().find(yesNo, today.toString()))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
+    }
+
+    @Test fun twoRefusedTicksOnOneTrack_oneNotice() = runTest {
+        val track = seedTrack(serverId = 10L, type = "counter")
+        seedDirty(track, date = today.minusDays(1))
+        seedDirty(track)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
+    }
+
+    @Test fun refusedTicksOnTwoTracks_twoNoticesInQueueOrder() = runTest {
+        val first = seedTrack(serverId = 10L, type = "counter")
+        val second = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(first)
+        seedDirty(second)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        rig.enqueueJson(archivedRefusal("T11"), code = 423)
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertEquals(
+            listOf("T10 is archived, so the change wasn't saved.", "T11 is archived, so the change wasn't saved."),
+            notices.shown,
+        )
+    }
+
+    @Test fun refusedThen503_retries_refusedRowGone_noticeStillShown() = runTest {
+        val refused = seedTrack(serverId = 10L, type = "counter")
+        val failing = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(refused)
+        seedDirty(failing)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        rig.enqueueStatus(503)
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+        assertNull(rig.db.tickDao().find(refused, today.toString()))
+        assertTrue(rig.db.tickDao().find(failing, today.toString())!!.dirty)
+        assertEquals("only the two sets: no pull after a retry", 2, rig.server.requestCount)
+        assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
+    }
+
+    @Test fun refusedForAnotherReason_showsTheServersMessage() = runTest {
+        val track = seedTrack(serverId = 10L, type = "counter")
+        seedDirty(track)
+        rig.enqueueJson(refusal(423, "immutable", "T10 can't be changed"), code = 423)
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertNull(rig.db.tickDao().find(track, today.toString()))
+        assertEquals(listOf("T10 can't be changed"), notices.shown)
+    }
+
+    @Test fun trackDeletedElsewhere_404WithReason_dropped_trackGoneAfterPull_noNotice() = runTest {
+        val deleted = seedTrack(serverId = 10L, type = "counter")
+        val kept = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(deleted)
+        seedDirty(kept, value = 2)
+        rig.enqueueJson(refusal(404, "trackNotFound", "Track not found"), code = 404)
+        rig.enqueueJson(setOk(2))
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":11,"name":"T11","type":"counter","sortOrder":1,"private":false}]}}""",
+        )
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":61,"trackId":11,"date":"$today","value":2}]}}""",
+        )
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.success(), result)
+        assertTrue(rig.takeApiRequest().path!!.endsWith("/ticks/set"))
+        assertTrue("the queue moved on", rig.takeApiRequest().path!!.endsWith("/ticks/set"))
+        assertNull(rig.db.tickDao().find(deleted, today.toString()))
+        assertNull("the pull removed the track", rig.db.trackDao().findByServerId(10L))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(emptyList<String>(), notices.shown)
+    }
+
+    @Test fun nextcloudsOwn404_noReason_retries_tickStaysQueued() = runTest {
+        // What Nextcloud answers for every Tickbuddy URL while the app is disabled.
+        val track = seedTrack(serverId = 10L, type = "counter")
+        seedDirty(track)
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"failure","statuscode":998,"message":"Invalid query, please check the syntax. API specifications are here: http:\/\/www.open-collaboration-services.org\/ocs-v2."},"data":[]}}""",
+            code = 404,
+        )
+
+        val result = buildWorker().doWork()
+
+        assertEquals(ListenableWorker.Result.retry(), result)
+        assertTrue(rig.db.tickDao().find(track, today.toString())!!.dirty)
+        assertEquals("only the set: no pull after a retry", 1, rig.server.requestCount)
+        assertEquals(emptyList<String>(), notices.shown)
+    }
+
+    @Test fun wrongTrackType_400WithReason_dropped_queueMovesOn_noNotice() = runTest {
+        val yesNo = seedTrack(serverId = 10L, type = "boolean")
+        val counter = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(yesNo)
+        seedDirty(counter, value = 2)
+        rig.enqueueAsset("ocs/empty.json") // probe
+        rig.enqueueJson(refusal(400, "wrongTrackType", "Not a yes/no track"), code = 400)
+        rig.enqueueJson(setOk(2))
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        assertTrue(rig.takeApiRequest().path!!.endsWith("/ticks/toggle"))
+        assertTrue("the queue moved on", rig.takeApiRequest().path!!.endsWith("/ticks/set"))
+        assertNull(rig.db.tickDao().find(yesNo, today.toString()))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(emptyList<String>(), notices.shown)
+    }
+
+    @Test fun http400_noReason_retries_rowStaysDirty() = runTest {
+        val track = seedTrack(serverId = 10L, type = "counter")
+        seedDirty(track)
+        rig.enqueueJson(refusal(400, null), code = 400)
+
+        assertEquals(ListenableWorker.Result.retry(), buildWorker().doWork())
+
+        assertTrue(rig.db.tickDao().find(track, today.toString())!!.dirty)
+        assertEquals(emptyList<String>(), notices.shown)
     }
 }

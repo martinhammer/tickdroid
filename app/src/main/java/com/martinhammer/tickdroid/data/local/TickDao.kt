@@ -31,7 +31,7 @@ interface TickDao {
     @Query("DELETE FROM ticks WHERE trackLocalId = :trackLocalId AND date = :date")
     suspend fun deleteByKey(trackLocalId: Long, date: String)
 
-    @Query("SELECT * FROM ticks WHERE dirty = 1")
+    @Query("SELECT * FROM ticks WHERE dirty = 1 ORDER BY localId")
     suspend fun getDirty(): List<TickEntity>
 
     /** Unsent changes to archived tracks' ticks: the server ignores them, so they are dropped. */

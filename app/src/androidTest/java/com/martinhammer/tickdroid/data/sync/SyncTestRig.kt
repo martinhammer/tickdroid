@@ -76,7 +76,7 @@ class SyncTestRig {
         .inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java)
         .build()
 
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
+    val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val client: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(OcsHeadersInterceptor())
         .build()
