@@ -36,7 +36,7 @@ import java.time.LocalDate
 @OptIn(ExperimentalCoroutinesApi::class)
 class TrackDetailViewModelTest {
 
-    private val track = Track(1, serverId = 10, name = "Exercise", type = TrackType.BOOLEAN, sortOrder = 1, private = false)
+    private val track = Track(1, serverId = 10, name = "Exercise", type = TrackType.YesNo, sortOrder = 1, private = false)
     private val tracks = MutableStateFlow(listOf(track))
     private val prefs = MutableStateFlow(mapOf(10L to TrackPrefs(colorKey = "blue", emoji = null)))
     private val online = MutableStateFlow(true)

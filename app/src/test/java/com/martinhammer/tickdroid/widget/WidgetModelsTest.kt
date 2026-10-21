@@ -15,11 +15,11 @@ class WidgetModelsTest {
 
     private val today = LocalDate.of(2026, 10, 5)
 
-    private fun track(localId: Long, serverId: Long?, name: String, type: TrackType = TrackType.BOOLEAN, private: Boolean = false) =
+    private fun track(localId: Long, serverId: Long?, name: String, type: TrackType = TrackType.YesNo, private: Boolean = false) =
         Track(localId = localId, serverId = serverId, name = name, type = type, sortOrder = localId.toInt(), private = private)
 
     private val exercise = track(1, 101, "Exercise")
-    private val coffee = track(2, 102, "Coffee", TrackType.COUNTER)
+    private val coffee = track(2, 102, "Coffee", TrackType.Counter)
     private val diary = track(3, 103, "Diary", private = true)
     private val unsynced = track(4, null, "Unsynced")
     private val tracks = listOf(exercise, coffee, diary, unsynced)
@@ -77,13 +77,13 @@ class WidgetModelsTest {
     // WidgetRow.done
 
     @Test fun `done is true for a ticked yes-no and a counter above 0`() {
-        assertTrue(row(TrackType.BOOLEAN, 1).done)
-        assertTrue(row(TrackType.COUNTER, 2).done)
+        assertTrue(row(TrackType.YesNo, 1).done)
+        assertTrue(row(TrackType.Counter, 2).done)
     }
 
     @Test fun `done is false for zero and missing ticks`() {
-        assertFalse(row(TrackType.COUNTER, 0).done)
-        assertFalse(row(TrackType.BOOLEAN, 0).done)
+        assertFalse(row(TrackType.Counter, 0).done)
+        assertFalse(row(TrackType.YesNo, 0).done)
         // No tick rows at all for this day.
         val noTicks = buildListModel(true, today.minusDays(1), tracks, emptyMap(), ticks, null) as ListModel.Content
         assertTrue(noTicks.rows.none { it.done })
@@ -164,11 +164,38 @@ class WidgetModelsTest {
     // Text
 
     @Test fun `cell descriptions`() {
-        assertEquals("Duolingo, done", cellDescription(row(TrackType.BOOLEAN, 1).copy(name = "Duolingo")))
-        assertEquals("Duolingo, not done", cellDescription(row(TrackType.BOOLEAN, 0).copy(name = "Duolingo")))
-        assertEquals("Coffee, 3", cellDescription(row(TrackType.COUNTER, 3).copy(name = "Coffee")))
-        assertEquals("Coffee, 2, tap to add one", cellDescription(row(TrackType.COUNTER, 2).copy(name = "Coffee"), tapHint = true))
-        assertEquals("Exercise, done", cellDescription(row(TrackType.BOOLEAN, 1).copy(name = "Exercise"), tapHint = true))
+        assertEquals("Duolingo, done", cellDescription(row(TrackType.YesNo, 1).copy(name = "Duolingo")))
+        assertEquals("Duolingo, not done", cellDescription(row(TrackType.YesNo, 0).copy(name = "Duolingo")))
+        assertEquals("Coffee, 3", cellDescription(row(TrackType.Counter, 3).copy(name = "Coffee")))
+        assertEquals("Coffee, 2, tap to add one", cellDescription(row(TrackType.Counter, 2).copy(name = "Coffee"), tapHint = true))
+        assertEquals("Exercise, done", cellDescription(row(TrackType.YesNo, 1).copy(name = "Exercise"), tapHint = true))
+    }
+
+    @Test fun `a type this Tickdroid doesn't know asks for an update, with no tap hint`() {
+        val future = row(TrackType.Unknown("future"), 1).copy(name = "Mood")
+        assertEquals("Mood, Tickdroid update required", cellDescription(future))
+        assertEquals("Mood, Tickdroid update required", cellDescription(future, tapHint = true))
+        assertEquals("Mood, Tickdroid update required", cellDescription(future.copy(value = 0)))
+    }
+
+    // Unknown types
+
+    private val mood = track(5, 105, "Mood", TrackType.Unknown("future"))
+
+    @Test fun `a track of a type this Tickdroid doesn't know is listed like any other`() {
+        val model = buildListModel(true, today, tracks + mood, emptyMap(), ticks + (TickKey(5, today) to Tick(5, today, 1)), null)
+        assertEquals(listOf(101L, 102L, 105L), model.ids())
+        val row = (model as ListModel.Content).rows.last()
+        assertEquals(TrackType.Unknown("future"), row.type)
+        assertTrue(row.done)
+        val hidden = buildListModel(true, today, tracks + mood, emptyMap(), ticks, WidgetConfig.TrackSelection(shown = mapOf(105L to false)))
+        assertEquals(listOf(101L, 102L), hidden.ids())
+    }
+
+    @Test fun `a Single track widget can show one`() {
+        val model = button(WidgetConfig.Button(105), trackList = tracks + mood) as ButtonModel.Content
+        assertEquals("Mood", model.row.name)
+        assertFalse(model.row.done)
     }
 
     @Test fun `abbreviation is the first two letters, upper case`() {

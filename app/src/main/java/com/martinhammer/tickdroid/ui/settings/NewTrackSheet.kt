@@ -62,7 +62,9 @@ internal fun NewTrackForm(
     onAdd: (name: String, type: TrackType, private: Boolean) -> Unit,
 ) {
     var name by rememberSaveable { mutableStateOf("") }
-    var type by rememberSaveable { mutableStateOf(TrackType.BOOLEAN) }
+    // Saved as the wire value: TrackType is a sealed type, not an enum, so not Bundle-able.
+    var typeWire by rememberSaveable { mutableStateOf(TrackType.YesNo.wireValue) }
+    val type = TrackType.fromWire(typeWire)
     var private by rememberSaveable { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
@@ -97,15 +99,15 @@ internal fun NewTrackForm(
 
         SectionLabel(label = "Type", subtitle = "Track type can't be changed later")
         Spacer(Modifier.height(12.dp))
-        val types = listOf(TrackType.BOOLEAN, TrackType.COUNTER)
+        val types = listOf(TrackType.YesNo, TrackType.Counter)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth()) {
             types.forEachIndexed { index, option ->
                 SegmentedButton(
                     selected = type == option,
-                    onClick = { type = option },
+                    onClick = { typeWire = option.wireValue },
                     shape = SegmentedButtonDefaults.itemShape(index = index, count = types.size),
                 ) {
-                    Text(if (option == TrackType.COUNTER) "Counter" else "Yes/No")
+                    Text(if (option == TrackType.Counter) "Counter" else "Yes/No")
                 }
             }
         }

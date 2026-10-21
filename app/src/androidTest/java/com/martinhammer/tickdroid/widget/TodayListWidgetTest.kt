@@ -6,6 +6,7 @@ import androidx.glance.GlanceTheme
 import androidx.glance.appwidget.testing.unit.GlanceAppWidgetUnitTest
 import androidx.glance.appwidget.testing.unit.hasRunCallbackClickAction
 import androidx.glance.testing.unit.hasClickAction
+import androidx.glance.testing.unit.hasContentDescription
 import androidx.glance.testing.unit.hasTestTag
 import androidx.glance.testing.unit.hasText
 import androidx.glance.testing.unit.hasTextEqualTo
@@ -14,6 +15,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.addOneParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.coffee
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.exercise
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.mood
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.readOnlyParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.rows
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.today
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.toggleParams
@@ -51,6 +54,22 @@ class TodayListWidgetTest {
             .assert(hasRunCallbackClickAction<ToggleTickAction>(toggleParams(exercise)))
         onNode(hasTestTag("widgetRow-${coffee.serverId}"))
             .assert(hasRunCallbackClickAction<AdjustCounterAction>(addOneParams(coffee)))
+    }
+
+    @Test fun unknown_type_is_read_only_with_a_question_mark_when_ticked() = runGlanceAppWidgetUnitTest {
+        render(ListModel.Content(today, listOf(exercise, mood), TrackLabels.Full))
+        onNode(hasText("Mood")).assertExists()
+        onNode(hasTextEqualTo("?")).assertExists()
+        onNode(hasTestTag("widgetRow-${mood.serverId}"))
+            .assert(hasRunCallbackClickAction<ReadOnlyTapAction>(readOnlyParams(mood)))
+            .assert(hasContentDescription("Mood, Tickdroid update required"))
+    }
+
+    @Test fun unknown_type_without_a_value_draws_an_empty_cell() = runGlanceAppWidgetUnitTest {
+        render(ListModel.Content(today, listOf(mood.copy(value = 0)), TrackLabels.Full))
+        onNode(hasText("Mood")).assertExists()
+        onNode(hasTextEqualTo("?")).assertDoesNotExist()
+        onNode(hasTextEqualTo("0")).assertDoesNotExist()
     }
 
     @Test fun short_labels_show_emoji_or_abbreviation_not_names() = runGlanceAppWidgetUnitTest {

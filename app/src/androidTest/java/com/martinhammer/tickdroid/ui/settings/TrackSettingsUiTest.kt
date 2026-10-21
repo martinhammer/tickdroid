@@ -50,7 +50,7 @@ class TrackSettingsUiTest {
     @get:Rule val rule = createComposeRule()
 
     private fun track(localId: Long, name: String = "Track $localId", private: Boolean = false) =
-        Track(localId, serverId = localId * 10, name = name, type = TrackType.BOOLEAN, sortOrder = localId.toInt(), private = private)
+        Track(localId, serverId = localId * 10, name = name, type = TrackType.YesNo, sortOrder = localId.toInt(), private = private)
 
     private val exercise = track(1, "Exercise")
 
@@ -70,7 +70,7 @@ class TrackSettingsUiTest {
         rule.onNodeWithTag("newTrackName").performTextInput("Water")
         rule.onNodeWithText("Counter").performClick()
         rule.onNodeWithText("Add track").assertIsEnabled().performClick()
-        assertEquals(Triple("   Water", TrackType.COUNTER, false), added)
+        assertEquals(Triple("   Water", TrackType.Counter, false), added)
     }
 
     @Test fun newTrack_nameStopsAt255Characters() {
@@ -414,5 +414,56 @@ class TrackSettingsUiTest {
         rule.onNodeWithText("Archive track").assertIsNotEnabled().performClick()
         assertEquals(1, archives)
         assertEquals(1, blocked)
+    }
+
+    // --- A track of a type this Tickdroid doesn't know ---
+
+    private val mood = track(6, "Mood").copy(type = TrackType.Unknown("future"))
+
+    @Test fun unknownType_listRow_saysUpdateRequired_andStillOpens() {
+        var opened: Long? = null
+        rule.setContent {
+            TickdroidTheme {
+                TracksSettingsContent(
+                    state = TracksSettingsUiState(rows = listOf(TrackRowState(mood.copy(private = true), TrackPrefs())), loaded = true),
+                    online = true,
+                    listState = rememberLazyListState(),
+                    onOpenTrack = { opened = it }, onMove = { _, _ -> }, onCommitOrder = {},
+                    onMoveUp = {}, onMoveDown = {},
+                    onOfflineTap = {},
+                )
+            }
+        }
+        rule.onNodeWithText("Tickdroid update required · Private").assertIsDisplayed()
+        rule.onNodeWithTag("handle-6").assertIsEnabled()
+        rule.onNodeWithText("Mood").performClick()
+        assertEquals(6L, opened)
+    }
+
+    @Test fun unknownType_trackScreen_saysUpdateRequired_managementStillWorks() {
+        var actions = 0
+        rule.setContent {
+            TickdroidTheme {
+                androidx.compose.foundation.layout.Column {
+                    TrackTitle(
+                        name = "Mood", showRename = true, online = true, renameEnabled = true,
+                        onRename = { actions++ }, onOfflineTap = {},
+                    )
+                    TrackDetailContent(
+                        track = mood, prefs = TrackPrefs(), online = true, serverEditable = true,
+                        pendingPrivate = null,
+                        onPrivateChange = { actions++ }, onColorKeyChange = {}, onEmojiChange = {},
+                        onMoreEmojis = {}, onDelete = { actions++ }, onOfflineTap = {},
+                        archiveSupported = true, onArchive = { actions++ },
+                    )
+                }
+            }
+        }
+        rule.onNodeWithText("Tickdroid update required").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Rename track").assertIsEnabled().performClick()
+        rule.onNodeWithText("Private").assertIsEnabled().performClick()
+        rule.onNodeWithText("Archive track").assertIsEnabled().performClick()
+        rule.onNodeWithText("Delete track").assertIsEnabled().performClick()
+        assertEquals(4, actions)
     }
 }

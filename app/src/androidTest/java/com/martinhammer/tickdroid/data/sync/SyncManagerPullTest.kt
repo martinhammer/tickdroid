@@ -3,6 +3,9 @@ package com.martinhammer.tickdroid.data.sync
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsEntity
+import com.martinhammer.tickdroid.data.repository.TrackRepository
+import com.martinhammer.tickdroid.domain.TrackType
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import okhttp3.mockwebserver.MockResponse
@@ -207,7 +210,7 @@ class SyncManagerPullTest {
         rig.syncManager.pull(from, to)
 
         assertEquals("/ocs/v2.php/cloud/capabilities", rig.server.takeRequest().path)
-        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true&includeAllTypes=true", rig.takeApiRequest().path)
         val smoking = rig.db.trackDao().findByServerId(13)!!
         assertEquals("2026-08-14", smoking.archivedAt)
         assertEquals("red", rig.db.trackPrefsDao().findByServerId(13)?.colorKey)
@@ -220,7 +223,7 @@ class SyncManagerPullTest {
 
         rig.syncManager.pull(from, to)
 
-        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks", rig.takeApiRequest().path)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeAllTypes=true", rig.takeApiRequest().path)
         assertTrue(rig.db.trackDao().getAll().all { it.archivedAt == null })
         assertFalse(rig.serverFeatures.archivedTracks.value)
     }
@@ -229,7 +232,7 @@ class SyncManagerPullTest {
         rig.enqueueAsset("ocs/tracks_ok.json")
         rig.enqueueAsset("ocs/empty.json")
         rig.syncManager.pull(from, to)
-        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks", rig.takeApiRequest().path)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeAllTypes=true", rig.takeApiRequest().path)
         rig.takeApiRequest()
 
         rig.archivedTracks = true
@@ -237,7 +240,7 @@ class SyncManagerPullTest {
         rig.enqueueAsset("ocs/empty.json")
         rig.syncManager.pull(from, to)
 
-        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true&includeAllTypes=true", rig.takeApiRequest().path)
         assertTrue(rig.serverFeatures.archivedTracks.value)
     }
 
@@ -260,7 +263,7 @@ class SyncManagerPullTest {
 
             assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
             assertTrue(rig.serverFeatures.archivedTracks.value)
-            assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true", rig.takeApiRequest().path)
+            assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeArchived=true&includeAllTypes=true", rig.takeApiRequest().path)
             rig.takeApiRequest()
         }
     }
@@ -283,5 +286,48 @@ class SyncManagerPullTest {
         assertFalse(tick.deleted)
         assertEquals(1, tick.value)
         assertTrue(rig.db.tickDao().getDirty().isEmpty())
+    }
+
+    // --- A track of a type this Tickdroid doesn't know ---
+
+    @Test fun unknownType_isStored_readsAsUnknown_oddValuesBecomeMarkers_othersUnaffected() = runTest {
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":10,"name":"Meditate","type":"boolean","sortOrder":0,"private":false},
+              {"id":11,"name":"Pages","type":"counter","sortOrder":1,"private":false},
+              {"id":14,"name":"Mood","type":"future","sortOrder":2,"private":false}
+            ]}}""",
+        )
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":1,"trackId":10,"date":"2026-04-10","value":1},
+              {"id":2,"trackId":11,"date":"2026-04-10","value":4},
+              {"id":3,"trackId":14,"date":"2026-04-10","value":7},
+              {"id":4,"trackId":14,"date":"2026-04-11","value":7.5},
+              {"id":5,"trackId":14,"date":"2026-04-12","value":"red"}
+            ]}}""",
+        )
+
+        rig.syncManager.pull(from, to)
+
+        assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+        assertEquals("/ocs/v2.php/apps/tickbuddy/api/tracks?includeAllTypes=true", rig.takeApiRequest().path)
+        assertEquals(
+            "/ocs/v2.php/apps/tickbuddy/api/ticks?from=$from&to=$to&includeAllTypes=true",
+            rig.takeApiRequest().path,
+        )
+        val mood = rig.db.trackDao().findByServerId(14)!!
+        assertEquals("future", mood.type)
+        val moodTicks = listOf("2026-04-10", "2026-04-11", "2026-04-12").map { rig.db.tickDao().find(mood.localId, it)?.value }
+        assertEquals(listOf(7, 1, 1), moodTicks)
+        assertEquals(1, rig.db.tickDao().find(rig.db.trackDao().findByServerId(10)!!.localId, "2026-04-10")?.value)
+        assertEquals(4, rig.db.tickDao().find(rig.db.trackDao().findByServerId(11)!!.localId, "2026-04-10")?.value)
+
+        // Mapping no longer throws: the track reaches the app as Unknown.
+        val tracks = TrackRepository(rig.db.trackDao()).observeTracks().first()
+        assertEquals(
+            listOf(TrackType.YesNo, TrackType.Counter, TrackType.Unknown("future")),
+            tracks.map { it.type },
+        )
     }
 }

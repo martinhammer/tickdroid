@@ -9,10 +9,13 @@ import androidx.glance.appwidget.testing.unit.runGlanceAppWidgetUnitTest
 import androidx.glance.testing.unit.hasClickAction
 import androidx.glance.testing.unit.hasTestTag
 import androidx.glance.testing.unit.hasText
+import androidx.glance.testing.unit.hasTextEqualTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.addOneParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.coffee
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.exercise
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.mood
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.readOnlyParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.floss
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.rows
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.today
@@ -47,6 +50,20 @@ class TodayRowWidgetTest {
             .assert(hasRunCallbackClickAction<AdjustCounterAction>(addOneParams(coffee)))
         onNode(hasTestTag("widgetRefresh")).assertExists()
         onNode(hasTestTag("widgetEdit")).assertExists()
+    }
+
+    @Test fun unknown_type_is_read_only_with_a_question_mark_when_ticked() = runGlanceAppWidgetUnitTest {
+        render(ListModel.Content(today, listOf(exercise, mood), TrackLabels.Full))
+        onNode(hasTextEqualTo("MO")).assertExists()
+        onNode(hasTextEqualTo("?")).assertExists()
+        onNode(hasTestTag("widgetColumn-${mood.serverId}"))
+            .assert(hasRunCallbackClickAction<ReadOnlyTapAction>(readOnlyParams(mood)))
+    }
+
+    @Test fun unknown_type_without_a_value_draws_an_empty_cell() = runGlanceAppWidgetUnitTest {
+        render(ListModel.Content(today, listOf(mood.copy(value = 0)), TrackLabels.Full))
+        onNode(hasTextEqualTo("MO")).assertExists()
+        onNode(hasTextEqualTo("?")).assertDoesNotExist()
     }
 
     @Test fun tracks_that_dont_fit_are_left_out_from_the_end() = runGlanceAppWidgetUnitTest {

@@ -146,6 +146,7 @@ archivedAt  string?    "YYYY-MM-DD" the day it was archived, or null (active). O
 
 - **Max 99 tracks per user.** Creating the 100th returns `403` with `{message: "Maximum of 99 tracks reached"}`.
 - **Track `type` is immutable.** `PUT /api/tracks/{id}` silently ignores any `type` field. If a user wants a different type, they must delete and recreate.
+- **Tolerate an unknown `type`.** A newer Tickbuddy may add types (Number, Choice, …). A client must not fail on a `type` it doesn't know, nor on a tick `value` of that track that isn't an integer: show such a track read-only (or hide it), never write its ticks, and keep rename / private / reorder / archive / delete working, since those don't depend on the type.
 - **Deleting a track cascades**: all its ticks are deleted server-side in the same transaction.
 - **Archiving keeps everything** (`archivedTracks` flag): the track and its ticks stay, it is just no longer tracked. The 99-track limit counts archived tracks.
 

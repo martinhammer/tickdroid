@@ -98,7 +98,7 @@ class TrackChangesTest {
         rig.enqueueJson(ok(trackJson(water)), code = 201)
         rig.enqueueJson(list(meditate, pages, mood, water))
 
-        val result = editor.create("Water", TrackType.BOOLEAN, private = false)
+        val result = editor.create("Water", TrackType.YesNo, private = false)
 
         assertEquals(TrackChange.Created(20), result)
         val post = take()
@@ -107,7 +107,7 @@ class TrackChangesTest {
         assertEquals(listOf("name" to "Water", "type" to "boolean"), post.form())
         val reread = take()
         assertEquals("GET", reread.method)
-        assertEquals(base, reread.path)
+        assertEquals("$base?includeAllTypes=true", reread.path)
         assertEquals(listOf(10L, 11L, 12L, 20L), rig.db.trackDao().getAll().map { it.serverId })
     }
 
@@ -117,7 +117,7 @@ class TrackChangesTest {
         rig.enqueueJson(ok(trackJson(water.copy(private = true))))
         rig.enqueueJson(list(water.copy(private = true)))
 
-        val result = editor.create("Water", TrackType.COUNTER, private = true)
+        val result = editor.create("Water", TrackType.Counter, private = true)
 
         assertEquals(TrackChange.Created(20), result)
         assertEquals(listOf("name" to "Water", "type" to "counter"), take().form())
@@ -135,7 +135,7 @@ class TrackChangesTest {
         rig.enqueueStatus(500)
         rig.enqueueJson(list(water))
 
-        val result = editor.create("Water", TrackType.BOOLEAN, private = true)
+        val result = editor.create("Water", TrackType.YesNo, private = true)
 
         assertEquals(TrackChange.CreatedNotPrivate(20), result)
         assertFalse(rig.db.trackDao().findByServerId(20)!!.private)
@@ -255,7 +255,7 @@ class TrackChangesTest {
         assertEquals(listOf("archived" to "true", "archivedAt" to "2026-04-20"), put.form())
         val reread = take()
         assertEquals("GET", reread.method)
-        assertEquals("$base?includeArchived=true", reread.path)
+        assertEquals("$base?includeArchived=true&includeAllTypes=true", reread.path)
         val after = rig.db.trackDao().findByServerId(11)!!
         assertEquals("2026-04-20", after.archivedAt)
         assertEquals(before.localId, after.localId)
@@ -279,7 +279,7 @@ class TrackChangesTest {
         assertEquals(TrackChange.Done, editor.restore(11))
 
         assertEquals(listOf("archived" to "false"), take().form())
-        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("$base?includeArchived=true&includeAllTypes=true", take().path)
         assertNull(rig.db.trackDao().findByServerId(11)!!.archivedAt)
         assertEquals(listOf(10L, 12L, 11L), rig.db.trackDao().getAll().map { it.serverId })
     }
@@ -296,12 +296,12 @@ class TrackChangesTest {
 
         assertEquals(TrackChange.Done, editor.reorder(listOf(12, 10, 11)))
 
-        assertEquals(base, take().path)
+        assertEquals("$base?includeAllTypes=true", take().path)
         assertEquals(
             listOf("trackIds[]" to "12", "trackIds[]" to "10", "trackIds[]" to "11"),
             take().form(),
         )
-        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("$base?includeArchived=true&includeAllTypes=true", take().path)
     }
 
     @Test fun archive_dropsADirtyTickWaitingForThatTrack() = runTest {
@@ -334,7 +334,7 @@ class TrackChangesTest {
 
         val put = take()
         assertEquals("handling=strict", put.getHeader("Prefer"))
-        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("$base?includeArchived=true&includeAllTypes=true", take().path)
         assertEquals("2026-04-18", rig.db.trackDao().findByServerId(11)!!.archivedAt)
     }
 
@@ -354,7 +354,7 @@ class TrackChangesTest {
         )
 
         assertEquals("PUT", take().method)
-        assertEquals("$base?includeArchived=true", take().path)
+        assertEquals("$base?includeArchived=true&includeAllTypes=true", take().path)
         assertEquals("2026-04-18", rig.db.trackDao().findByServerId(11)!!.archivedAt)
     }
 
@@ -365,14 +365,14 @@ class TrackChangesTest {
         rig.enqueueJson(list())
         assertEquals(
             TrackChange.Failed("Maximum of 99 tracks reached"),
-            editor.create("Water", TrackType.BOOLEAN, private = false),
+            editor.create("Water", TrackType.YesNo, private = false),
         )
 
         rig.enqueueJson(error("Invalid track type: x"), code = 400)
         rig.enqueueJson(list())
         assertEquals(
             TrackChange.Failed("Invalid track type: x"),
-            editor.create("Water", TrackType.BOOLEAN, private = false),
+            editor.create("Water", TrackType.YesNo, private = false),
         )
     }
 
@@ -455,8 +455,8 @@ class TrackChangesTest {
         assertEquals("pull reached the server while a change held the lock", 0, requestsWhileChanging)
         // The change's re-read, then the pull's tracks and ticks.
         val paths = List(3) { take().path!! }
-        assertEquals(base, paths[0])
-        assertEquals(base, paths[1])
+        assertEquals("$base?includeAllTypes=true", paths[0])
+        assertEquals("$base?includeAllTypes=true", paths[1])
         assertTrue(paths[2].startsWith("/ocs/v2.php/apps/tickbuddy/api/ticks"))
     }
 }

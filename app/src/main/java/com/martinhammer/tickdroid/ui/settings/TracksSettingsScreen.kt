@@ -70,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.UPDATE_REQUIRED
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.ui.common.TrackBadge
 import kotlinx.coroutines.launch
@@ -537,9 +538,11 @@ private fun TrackRow(
 }
 
 internal fun trackTypeLabel(type: TrackType): String = when (type) {
-    TrackType.BOOLEAN -> "Yes/No"
-    TrackType.COUNTER -> "Counter"
+    TrackType.YesNo -> "Yes/No"
+    TrackType.Counter -> "Counter"
+    is TrackType.Unknown -> UPDATE_REQUIRED
 }
+
 
 /**
  * "Add track". `FloatingActionButton` has no `enabled`, so offline it draws Material's disabled

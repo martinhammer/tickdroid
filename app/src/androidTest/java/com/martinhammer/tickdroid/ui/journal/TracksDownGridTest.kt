@@ -39,8 +39,8 @@ class TracksDownGridTest {
     @get:Rule val rule = createComposeRule()
 
     private val today = LocalDate.parse("2026-10-02")
-    private val booleanTrack = Track(localId = 1L, serverId = 10L, name = "Made someone smile today", type = TrackType.BOOLEAN, sortOrder = 0, private = false)
-    private val counterTrack = Track(localId = 2L, serverId = 11L, name = "Glasses of water with lunch", type = TrackType.COUNTER, sortOrder = 1, private = false)
+    private val booleanTrack = Track(localId = 1L, serverId = 10L, name = "Made someone smile today", type = TrackType.YesNo, sortOrder = 0, private = false)
+    private val counterTrack = Track(localId = 2L, serverId = 11L, name = "Glasses of water with lunch", type = TrackType.Counter, sortOrder = 1, private = false)
     private val defaultWindow = DateWindow(oldestVisible = today.minusDays(29), today = today)
 
     private fun state(
@@ -120,7 +120,7 @@ class TracksDownGridTest {
     }
 
     @Test fun wrappedName_makesAllRowsTheSameTallerHeight() {
-        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.BOOLEAN, sortOrder = 2, private = false)
+        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.YesNo, sortOrder = 2, private = false)
         render(tracks = listOf(shortTrack, booleanTrack))
 
         val shortLabel = rule.onNodeWithTag("label-${shortTrack.localId}").getUnclippedBoundsInRoot()
@@ -139,7 +139,7 @@ class TracksDownGridTest {
     }
 
     @Test fun highDensity_keepsNamesOnOneLine() {
-        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.BOOLEAN, sortOrder = 2, private = false)
+        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.YesNo, sortOrder = 2, private = false)
         // The same long name that wraps at Medium (see above) stays on one line at High.
         render(tracks = listOf(shortTrack, booleanTrack), density = GridDensity.HIGH)
 
@@ -154,9 +154,9 @@ class TracksDownGridTest {
     }
 
     @Test fun overlongSingleWord_staysOnOneLine() {
-        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.BOOLEAN, sortOrder = 2, private = false)
+        val shortTrack = Track(localId = 3L, serverId = 12L, name = "Tea", type = TrackType.YesNo, sortOrder = 2, private = false)
         val longWord = "Supercalifragilisticexpialidocious"
-        val longWordTrack = Track(localId = 4L, serverId = 13L, name = longWord, type = TrackType.BOOLEAN, sortOrder = 3, private = false)
+        val longWordTrack = Track(localId = 4L, serverId = 13L, name = longWord, type = TrackType.YesNo, sortOrder = 3, private = false)
         render(tracks = listOf(shortTrack, longWordTrack))
 
         val shortLabel = rule.onNodeWithTag("label-${shortTrack.localId}").getUnclippedBoundsInRoot()

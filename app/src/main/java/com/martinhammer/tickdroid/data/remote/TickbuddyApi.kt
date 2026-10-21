@@ -28,16 +28,23 @@ interface TickbuddyApi {
      * [includeArchived] true asks for archived tracks as well (Tickbuddy with capability
      * `archivedTracks`). Null leaves the parameter out: active tracks only on a new server, every
      * track on an older one. Only send true when the flag is set (see `ServerFeatures`).
+     *
+     * [includeAllTypes] true asks for tracks of every type, not just yes/no and counter (a
+     * Tickbuddy with newer types hides them from clients that don't ask). Tickdroid always sends
+     * it, as it shows unknown types read-only; a server that doesn't filter ignores it.
      */
     @GET("/ocs/v2.php/apps/tickbuddy/api/tracks")
     suspend fun getTracks(
         @Query("includeArchived") includeArchived: Boolean? = null,
+        @Query("includeAllTypes") includeAllTypes: Boolean? = null,
     ): OcsEnvelope<List<TrackDto>>
 
+    /** [includeAllTypes]: as for [getTracks], the ticks of tracks of every type. */
     @GET("/ocs/v2.php/apps/tickbuddy/api/ticks")
     suspend fun getTicks(
         @Query("from") from: String,
         @Query("to") to: String,
+        @Query("includeAllTypes") includeAllTypes: Boolean? = null,
     ): OcsEnvelope<List<TickDto>>
 
     @FormUrlEncoded

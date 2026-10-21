@@ -35,10 +35,13 @@ class WidgetTickHandler @Inject constructor(
         // Archived counts as gone: findByServerId returns archived tracks, and a widget drawn
         // before the archive (Glance sessions linger) could otherwise tick one.
         if (track.private || track.archived) return Outcome.TrackGone
+        // A type this Tickdroid doesn't know is read-only. Its cells get ReadOnlyTapAction and
+        // never come here; this is only a guard.
+        if (track.type is TrackType.Unknown) return Outcome.Ignored
         when {
-            delta == null && track.type == TrackType.BOOLEAN ->
+            delta == null && track.type == TrackType.YesNo ->
                 tickRepository.toggleBoolean(track.localId, shownDay)
-            delta != null && track.type == TrackType.COUNTER ->
+            delta != null && track.type == TrackType.Counter ->
                 tickRepository.adjustCounter(track.localId, shownDay, delta)
             // The track's type changed under the widget; the redraw will fix the action.
             else -> return Outcome.Ignored

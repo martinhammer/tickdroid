@@ -74,7 +74,8 @@ private fun emptyCellColor(): ColorProvider {
 /**
  * The journal cell, as a widget draws it. [row] null draws the "?" tile of a Single track widget
  * with no track. Ticked: the track colour with ✓ or the value. Not ticked: the empty-cell colour
- * with the faint dot (yes/no) or "0" (counter).
+ * with the faint dot (yes/no) or "0" (counter). A track of a type this Tickdroid doesn't know
+ * draws "?" when ticked and nothing otherwise.
  */
 @Composable
 internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier = GlanceModifier) {
@@ -99,7 +100,9 @@ internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier 
     ) {
         when {
             row == null -> CellText("?", onContainer, numberSize)
-            row.type == TrackType.COUNTER -> CellText(row.value.toString(), onContainer, numberSize)
+            // A type from a newer Tickbuddy: "there is a value", and no "tap" hint when empty.
+            row.type is TrackType.Unknown -> if (done) CellText("?", onContainer, numberSize)
+            row.type == TrackType.Counter -> CellText(row.value.toString(), onContainer, numberSize)
             done -> Image(
                 provider = ImageProvider(R.drawable.ic_widget_check),
                 contentDescription = null,

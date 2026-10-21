@@ -37,7 +37,7 @@ import java.time.LocalDate
 class TracksSettingsViewModelTest {
 
     private fun track(localId: Long, sortOrder: Int = localId.toInt()) =
-        Track(localId, serverId = localId * 10, name = "T$localId", type = TrackType.BOOLEAN, sortOrder = sortOrder, private = false)
+        Track(localId, serverId = localId * 10, name = "T$localId", type = TrackType.YesNo, sortOrder = sortOrder, private = false)
 
     private val tracks = MutableStateFlow(listOf(track(1), track(2), track(3)))
     private val online = MutableStateFlow(true)
@@ -68,17 +68,17 @@ class TracksSettingsViewModelTest {
     private fun TracksSettingsViewModel.order() = state.value.rows.map { it.track.localId }
 
     @Test fun `create success sends Created`() = runTest {
-        coEvery { editor.create("Water", TrackType.COUNTER, false) } returns TrackChange.Created(70)
+        coEvery { editor.create("Water", TrackType.Counter, false) } returns TrackChange.Created(70)
         val h = harness()
-        h.vm.create("Water", TrackType.COUNTER, false)
+        h.vm.create("Water", TrackType.Counter, false)
         assertEquals(listOf(TracksSettingsEvent.Created(70)), h.events)
         assertFalse(h.vm.state.value.adding)
     }
 
     @Test fun `created but not private sends Created and the toast`() = runTest {
-        coEvery { editor.create("Water", TrackType.BOOLEAN, true) } returns TrackChange.CreatedNotPrivate(70)
+        coEvery { editor.create("Water", TrackType.YesNo, true) } returns TrackChange.CreatedNotPrivate(70)
         val h = harness()
-        h.vm.create("Water", TrackType.BOOLEAN, true)
+        h.vm.create("Water", TrackType.YesNo, true)
         assertEquals(
             listOf(
                 TracksSettingsEvent.Created(70),
@@ -92,7 +92,7 @@ class TracksSettingsViewModelTest {
         val answer = CompletableDeferred<TrackChange>()
         coEvery { editor.create(any(), any(), any()) } coAnswers { answer.await() }
         val h = harness()
-        h.vm.create("Water", TrackType.BOOLEAN, false)
+        h.vm.create("Water", TrackType.YesNo, false)
         assertTrue(h.vm.state.value.adding)
         answer.complete(TrackChange.Failed("Maximum of 99 tracks reached"))
         assertEquals(listOf(TracksSettingsEvent.Toast("Maximum of 99 tracks reached")), h.events)
@@ -102,14 +102,14 @@ class TracksSettingsViewModelTest {
     @Test fun `signed out shows nothing`() = runTest {
         coEvery { editor.create(any(), any(), any()) } returns TrackChange.SignedOut
         val h = harness()
-        h.vm.create("Water", TrackType.BOOLEAN, false)
+        h.vm.create("Water", TrackType.YesNo, false)
         assertEquals(emptyList<TracksSettingsEvent>(), h.events)
     }
 
     @Test fun `offline calls never reach the editor`() = runTest {
         online.value = false
         val h = harness()
-        h.vm.create("Water", TrackType.BOOLEAN, false)
+        h.vm.create("Water", TrackType.YesNo, false)
         h.vm.moveUp(2)
         h.vm.move(1, 3)
         h.vm.commitOrder()

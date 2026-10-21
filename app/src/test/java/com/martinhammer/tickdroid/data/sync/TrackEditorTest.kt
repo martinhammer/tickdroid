@@ -79,7 +79,7 @@ class TrackEditorTest {
         coEvery { api.createTrack("Water", "boolean") } throws httpError(403, ocsError("Maximum of 99 tracks reached"))
         assertEquals(
             TrackChange.Failed("Maximum of 99 tracks reached"),
-            editor.create("Water", TrackType.BOOLEAN, private = false),
+            editor.create("Water", TrackType.YesNo, private = false),
         )
     }
 
@@ -100,14 +100,14 @@ class TrackEditorTest {
 
     @Test fun `create sends the trimmed name and wire type`() = runTest {
         coEvery { api.createTrack("Coffee", "counter") } returns ok(dto(7))
-        assertEquals(TrackChange.Created(7), editor.create("  Coffee ", TrackType.COUNTER, private = false))
+        assertEquals(TrackChange.Created(7), editor.create("  Coffee ", TrackType.Counter, private = false))
         coVerify(exactly = 0) { api.updateTrack(any(), any(), any(), any(), any()) }
     }
 
     @Test fun `create with private makes a second call`() = runTest {
         coEvery { api.createTrack("Coffee", "boolean") } returns ok(dto(7))
         coEvery { api.updateTrack(7, isPrivate = true) } returns ok(dto(7, private = true))
-        assertEquals(TrackChange.Created(7), editor.create("Coffee", TrackType.BOOLEAN, private = true))
+        assertEquals(TrackChange.Created(7), editor.create("Coffee", TrackType.YesNo, private = true))
         coVerify { api.updateTrack(7, null, true) }
     }
 
@@ -116,12 +116,12 @@ class TrackEditorTest {
         coEvery { api.updateTrack(7, isPrivate = true) } throws IOException("reset")
         assertEquals(
             TrackChange.CreatedNotPrivate(7),
-            editor.create("Coffee", TrackType.BOOLEAN, private = true),
+            editor.create("Coffee", TrackType.YesNo, private = true),
         )
     }
 
     @Test fun `blank name never reaches the server`() = runTest {
-        assertEquals(TrackChange.Failed("Track name cannot be empty"), editor.create("  ", TrackType.BOOLEAN, false))
+        assertEquals(TrackChange.Failed("Track name cannot be empty"), editor.create("  ", TrackType.YesNo, false))
         assertEquals(TrackChange.Failed("Track name cannot be empty"), editor.rename(1, ""))
         coVerify(exactly = 0) { syncManager.changeTracks<TrackChange>(any()) }
     }
@@ -150,10 +150,18 @@ class TrackEditorTest {
 
     @Test fun `reorder sends mergeOrder's list`() = runTest {
         // Server has 1, 2, 3 plus 4 added elsewhere; the phone still knows 5, deleted elsewhere.
-        coEvery { api.getTracks() } returns ok(listOf(dto(2, 2), dto(1, 1), dto(4, 4), dto(3, 3)))
+        coEvery { api.getTracks(includeAllTypes = true) } returns ok(listOf(dto(2, 2), dto(1, 1), dto(4, 4), dto(3, 3)))
         coEvery { api.reorderTracks(any()) } returns ok(emptyList())
         assertEquals(TrackChange.Done, editor.reorder(listOf(3, 5, 1, 2)))
         coVerify { api.reorderTracks(listOf(3L, 1L, 2L, 4L)) }
+    }
+
+    @Test fun `reorder's read asks for every type, active tracks only`() = runTest {
+        // Otherwise a track of a type the server hides from older clients would drop to the end.
+        coEvery { api.getTracks(any(), any()) } returns ok(listOf(dto(1, 1)))
+        coEvery { api.reorderTracks(any()) } returns ok(emptyList())
+        editor.reorder(listOf(1))
+        coVerify { api.getTracks(null, true) }
     }
 
     // --- Archive / restore ---

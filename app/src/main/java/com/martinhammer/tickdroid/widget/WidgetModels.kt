@@ -5,6 +5,7 @@ import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
 import java.time.LocalDate
 
 // Pure, Compose-free models and layout maths for the home-screen widgets. JVM-tested
@@ -135,12 +136,13 @@ internal fun abbreviation(name: String): String = name.take(2).uppercase()
 
 /** TalkBack text for a cell. The list adds a hint, since there the whole row is the button. */
 internal fun cellDescription(row: WidgetRow, tapHint: Boolean = false): String {
+    if (row.type is TrackType.Unknown) return updateRequiredDescription(row.name)
     val state = when {
-        row.type == TrackType.COUNTER -> row.value.toString()
+        row.type == TrackType.Counter -> row.value.toString()
         row.done -> "done"
         else -> "not done"
     }
-    val hint = if (tapHint && row.type == TrackType.COUNTER) ", tap to add one" else ""
+    val hint = if (tapHint && row.type == TrackType.Counter) ", tap to add one" else ""
     return "${row.name}, $state$hint"
 }
 

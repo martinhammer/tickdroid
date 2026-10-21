@@ -123,7 +123,7 @@ class SyncManager @Inject constructor(
                 // First, so the track read below matches what the server offers.
                 refreshServerFeatures()
                 val tracks = fetchTracks()
-                val ticks = api.getTicks(from.toString(), to.toString()).ocs.data
+                val ticks = api.getTicks(from.toString(), to.toString(), includeAllTypes = true).ocs.data
                 // Never abandon a half-applied reconcile: see schedulePull's note on what
                 // Room does to the connection when a transaction's caller is cancelled.
                 withContext(NonCancellable) {
@@ -212,7 +212,10 @@ class SyncManager @Inject constructor(
 
     /** Every track the phone should keep: archived ones too when the server offers them. */
     private suspend fun fetchTracks(): List<TrackDto> =
-        api.getTracks(includeArchived = if (serverFeatures.archivedTracks.value) true else null).ocs.data
+        api.getTracks(
+            includeArchived = if (serverFeatures.archivedTracks.value) true else null,
+            includeAllTypes = true,
+        ).ocs.data
 
     /**
      * Applies a track list, then drops unsent ticks of archived tracks. Inside a transaction.

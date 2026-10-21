@@ -33,13 +33,14 @@ class WidgetTickHandlerTest {
     }
     private val handler = WidgetTickHandler(trackRepository, tickRepository, authRepository, clock)
 
-    private val yesNo = Track(localId = 1, serverId = 101, name = "Exercise", type = TrackType.BOOLEAN, sortOrder = 0, private = false)
-    private val counter = Track(localId = 2, serverId = 102, name = "Coffee", type = TrackType.COUNTER, sortOrder = 1, private = false)
+    private val yesNo = Track(localId = 1, serverId = 101, name = "Exercise", type = TrackType.YesNo, sortOrder = 0, private = false)
+    private val counter = Track(localId = 2, serverId = 102, name = "Coffee", type = TrackType.Counter, sortOrder = 1, private = false)
 
     init {
         coEvery { trackRepository.findByServerId(any()) } returns null
         coEvery { trackRepository.findByServerId(101) } returns yesNo
         coEvery { trackRepository.findByServerId(102) } returns counter
+        coEvery { trackRepository.findByServerId(104) } returns yesNo.copy(localId = 4, serverId = 104, type = TrackType.Unknown("future"))
         coEvery { trackRepository.findByServerId(103) } returns yesNo.copy(localId = 3, serverId = 103, archivedAt = today.minusDays(3))
     }
 
@@ -90,6 +91,12 @@ class WidgetTickHandlerTest {
     @Test fun `a type mismatch is Ignored and writes nothing`() = runTest {
         assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(101, today, 1))
         assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(102, today, null))
+        assertNoWrite()
+    }
+
+    @Test fun `a track of a type this Tickdroid doesn't know is Ignored and writes nothing`() = runTest {
+        assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(104, today, null))
+        assertEquals(WidgetTickHandler.Outcome.Ignored, handler.onTap(104, today, 1))
         assertNoWrite()
     }
 

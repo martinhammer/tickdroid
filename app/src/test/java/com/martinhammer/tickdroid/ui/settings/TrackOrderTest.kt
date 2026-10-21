@@ -12,7 +12,7 @@ import org.junit.Test
 class TrackOrderTest {
 
     private fun row(localId: Long) = TrackRowState(
-        Track(localId, serverId = localId * 10, name = "T$localId", type = TrackType.BOOLEAN, sortOrder = localId.toInt(), private = false),
+        Track(localId, serverId = localId * 10, name = "T$localId", type = TrackType.YesNo, sortOrder = localId.toInt(), private = false),
         TrackPrefs(),
     )
 

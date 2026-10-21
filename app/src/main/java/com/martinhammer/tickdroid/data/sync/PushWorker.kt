@@ -1,6 +1,7 @@
 package com.martinhammer.tickdroid.data.sync
 
 import android.content.Context
+import android.util.Log
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -15,6 +16,7 @@ import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.ocsErrorMessage
 import com.martinhammer.tickdroid.data.remote.ocsErrorReason
 import com.martinhammer.tickdroid.data.time.Clock
+import com.martinhammer.tickdroid.domain.TrackType
 import androidx.room.withTransaction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -80,6 +82,7 @@ class PushWorker @AssistedInject constructor(
 
     private companion object {
         const val PULL_WINDOW_DAYS = 30L
+        const val TAG = "PushWorker"
     }
 
     private suspend fun drain(): Result {
@@ -158,9 +161,15 @@ class PushWorker @AssistedInject constructor(
     private suspend fun pushOne(track: TrackEntity, entity: TickEntity) {
         val serverId = track.serverId ?: return // unsynced track — wait until pull picks it up
 
-        when (TrackKind.fromWire(track.type)) {
-            TrackKind.COUNTER -> pushCounter(track, serverId, entity)
-            TrackKind.BOOLEAN -> pushBoolean(track, serverId, entity)
+        when (val type = TrackType.fromWire(track.type)) {
+            TrackType.Counter -> pushCounter(track, serverId, entity)
+            TrackType.YesNo -> pushBoolean(track, serverId, entity)
+            // Read-only, so only a bug can queue one. Drop it unsent rather than guess what the
+            // server would make of it, or the "unsaved changes" chip would stay on for good.
+            is TrackType.Unknown -> {
+                Log.w(TAG, "Dropping a tick on a track of unknown type '${type.wireValue}'")
+                tickDao.deleteById(entity.localId)
+            }
         }
     }
 
@@ -174,7 +183,7 @@ class PushWorker @AssistedInject constructor(
         val desiredTicked = !entity.deleted && entity.value > 0
 
         // Fetch current server state for this single day to avoid replaying a stale toggle.
-        val sameDay = api.getTicks(from = entity.date, to = entity.date).ocs.data
+        val sameDay = api.getTicks(from = entity.date, to = entity.date, includeAllTypes = true).ocs.data
         val serverTicked = sameDay.any { it.trackId == serverId && it.date == entity.date }
 
         if (serverTicked != desiredTicked) {
@@ -200,15 +209,6 @@ class PushWorker @AssistedInject constructor(
                     ),
                 )
             }
-        }
-    }
-
-    private enum class TrackKind {
-        COUNTER, BOOLEAN;
-
-        companion object {
-            fun fromWire(wire: String): TrackKind =
-                if (wire.equals("counter", ignoreCase = true)) COUNTER else BOOLEAN
         }
     }
 }

@@ -81,8 +81,9 @@ class TrackEditor @Inject constructor(
      */
     suspend fun reorder(serverIdsInOrder: List<Long>): TrackChange = run { api ->
         // Deliberately active tracks only (no includeArchived): reorder only ever involves them,
-        // and the server places every track it isn't sent after the listed ones.
-        val serverOrder = api.getTracks().ocs.data.sortedBy { it.sortOrder }.map { it.id }
+        // and the server places every track it isn't sent after the listed ones. Every type,
+        // though, or a track of a type this Tickdroid doesn't know would drop to the end.
+        val serverOrder = api.getTracks(includeAllTypes = true).ocs.data.sortedBy { it.sortOrder }.map { it.id }
         api.reorderTracks(mergeOrder(serverIdsInOrder, serverOrder))
         TrackChange.Done
     }

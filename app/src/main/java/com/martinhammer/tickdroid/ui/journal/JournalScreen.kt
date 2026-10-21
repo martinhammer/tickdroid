@@ -71,6 +71,8 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -89,6 +91,8 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
+import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -530,15 +534,30 @@ internal fun TickCell(
     }
     val haptics = LocalHapticFeedback.current
     val context = LocalContext.current
-    val tapModifier = if (editable) {
+    val unknownType = track.type is TrackType.Unknown
+    val tapModifier = if (unknownType) {
+        // A type from a newer Tickbuddy: read-only on every day, editable or locked, so the
+        // locked-day toast never promises an edit that can't happen.
+        Modifier
+            .combinedClickable(
+                onClick = {
+                    android.widget.Toast.makeText(
+                        context,
+                        updateRequiredToast(track.name),
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                },
+            )
+            .semantics { contentDescription = updateRequiredDescription(track.name) }
+    } else if (editable) {
         when (track.type) {
-            TrackType.BOOLEAN -> Modifier.combinedClickable(
+            TrackType.YesNo -> Modifier.combinedClickable(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onToggleBoolean()
                 },
             )
-            TrackType.COUNTER -> Modifier.combinedClickable(
+            TrackType.Counter -> Modifier.combinedClickable(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onAdjustCounter(1)
@@ -550,6 +569,7 @@ internal fun TickCell(
                     }
                 },
             )
+            is TrackType.Unknown -> Modifier // handled above
         }
     } else {
         Modifier.combinedClickable(
@@ -572,7 +592,17 @@ internal fun TickCell(
         contentAlignment = Alignment.Center,
     ) {
         when {
-            track.type == TrackType.COUNTER && ticked -> {
+            // Its value means something only a newer Tickdroid knows: just "there is one".
+            unknownType && ticked -> {
+                Text(
+                    text = "?",
+                    color = onContainer,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            unknownType -> Unit // no "tap" hint: taps don't write
+            track.type == TrackType.Counter && ticked -> {
                 Text(
                     text = tick!!.value.toString(),
                     color = onContainer,
@@ -588,7 +618,7 @@ internal fun TickCell(
                     modifier = Modifier.size(cellSize * 0.6f),
                 )
             }
-            editable && track.type == TrackType.COUNTER -> {
+            editable && track.type == TrackType.Counter -> {
                 // Faint affordance hinting "tap to add" on editable empty counter cells.
                 Icon(
                     imageVector = Icons.Filled.Add,
@@ -597,7 +627,7 @@ internal fun TickCell(
                     modifier = Modifier.size(cellSize * 0.5f),
                 )
             }
-            editable && track.type == TrackType.BOOLEAN -> {
+            editable && track.type == TrackType.YesNo -> {
                 // Faint interpunct hinting "tap to tick" on editable empty boolean cells.
                 Text(
                     text = "·",

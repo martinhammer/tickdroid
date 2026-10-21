@@ -494,6 +494,32 @@ class PushWorkerTest {
         assertEquals(emptyList<String>(), notices.shown)
     }
 
+    @Test fun dirtyTickOnAnUnknownTypeTrack_droppedUnsent_queueMovesOn() = runTest {
+        // Only a bug can queue one (taps on such a track never write); the guard drops it.
+        val future = seedTrack(serverId = 14L, type = "future")
+        val counter = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(future, value = 3)
+        seedDirty(counter, value = 2)
+        rig.enqueueJson(setOk(2))
+        // The pull after the drain still knows both tracks, so the dropped row can't be a cascade.
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":14,"name":"T14","type":"future","sortOrder":0,"private":false},
+              {"id":11,"name":"T11","type":"counter","sortOrder":1,"private":false}]}}""",
+        )
+        rig.enqueueAsset("ocs/empty.json") // ticks
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertTrue("nothing sent for the unknown type", rig.takeApiRequest().path!!.endsWith("/ticks/set"))
+        assertTrue(rig.takeApiRequest().path!!.contains("/tracks"))
+        assertTrue(rig.takeApiRequest().path!!.contains("/ticks?"))
+        assertNotNull(rig.db.trackDao().findByServerId(14))
+        assertNull(rig.db.tickDao().find(future, today.toString()))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(emptyList<String>(), notices.shown)
+    }
+
     @Test fun http400_noReason_retries_rowStaysDirty() = runTest {
         val track = seedTrack(serverId = 10L, type = "counter")
         seedDirty(track)

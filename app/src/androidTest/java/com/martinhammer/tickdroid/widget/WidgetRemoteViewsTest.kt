@@ -97,6 +97,9 @@ class WidgetRemoteViewsTest {
         render("list_mid", DpSize(200.dp, 260.dp)) { TodayListContent(list, today, SyncBadge(syncing = true), 1) }
         render("list_empty", size) { TodayListContent(list.copy(rows = emptyList()), today, SyncBadge(), 1) }
         render("list_signed_out", size) { TodayListContent(ListModel.SignedOut, today, SyncBadge(), 1) }
+        // A type this Tickdroid doesn't know: "?" when ticked, an empty cell otherwise.
+        val unknown = list.copy(rows = listOf(WidgetTestFixtures.mood, WidgetTestFixtures.mood.copy(serverId = 106, name = "Weight", value = 0)))
+        render("list_unknown_type", size) { TodayListContent(unknown, today, SyncBadge(), 1) }
     }
 
     @Test fun todayRow_allStates() = runTest {
@@ -107,6 +110,9 @@ class WidgetRemoteViewsTest {
         val many = (1..20).map { exercise.copy(serverId = 1000L + it, name = "Track $it", emoji = null, value = it % 2) }
         render("row_wide", DpSize(900.dp, 72.dp)) { TodayRowContent(list.copy(rows = many), SyncBadge(), 2) }
         render("row_empty", DpSize(320.dp, 72.dp)) { TodayRowContent(list.copy(rows = emptyList()), SyncBadge(), 2) }
+        render("row_unknown_type", DpSize(320.dp, 72.dp)) {
+            TodayRowContent(list.copy(rows = listOf(WidgetTestFixtures.mood, WidgetTestFixtures.mood.copy(serverId = 106, value = 0))), SyncBadge(), 2)
+        }
         render("row_signed_out", DpSize(320.dp, 72.dp)) { TodayRowContent(ListModel.SignedOut, SyncBadge(), 2) }
     }
 
@@ -118,6 +124,10 @@ class WidgetRemoteViewsTest {
             SingleTrackContent(ButtonModel.Content(today, exercise.copy(value = 0)), SyncBadge(), 3)
         }
         render("single_abbreviation", size) { SingleTrackContent(ButtonModel.Content(today, WidgetTestFixtures.floss), SyncBadge(), 3) }
+        render("single_unknown_type", size) { SingleTrackContent(ButtonModel.Content(today, WidgetTestFixtures.mood), SyncBadge(), 3) }
+        render("single_unknown_type_empty", size) {
+            SingleTrackContent(ButtonModel.Content(today, WidgetTestFixtures.mood.copy(value = 0)), SyncBadge(), 3)
+        }
         render("single_choose", size) { SingleTrackContent(ButtonModel.ChooseTrack, SyncBadge(), 3) }
         render("single_signed_out", size) { SingleTrackContent(ButtonModel.SignedOut, SyncBadge(), 3) }
     }

@@ -14,7 +14,7 @@ class ArchivedTracksTest {
     private val collator = Collator.getInstance(Locale.UK).apply { strength = Collator.PRIMARY }
 
     private fun row(serverId: Long, name: String) = TrackRowState(
-        Track(serverId, serverId, name, TrackType.BOOLEAN, sortOrder = 0, private = false, archivedAt = LocalDate.of(2026, 8, 14)),
+        Track(serverId, serverId, name, TrackType.YesNo, sortOrder = 0, private = false, archivedAt = LocalDate.of(2026, 8, 14)),
         TrackPrefs(),
     )
 
@@ -30,7 +30,15 @@ class ArchivedTracksTest {
     }
 
     @Test fun `archived subtitle for both types`() {
-        assertEquals("Yes/No · Archived 14 Aug 2026", archivedSubtitle(TrackType.BOOLEAN, "14 Aug 2026"))
-        assertEquals("Counter · Archived Aug 14, 2026", archivedSubtitle(TrackType.COUNTER, "Aug 14, 2026"))
+        assertEquals("Yes/No · Archived 14 Aug 2026", archivedSubtitle(TrackType.YesNo, "14 Aug 2026"))
+        assertEquals("Counter · Archived Aug 14, 2026", archivedSubtitle(TrackType.Counter, "Aug 14, 2026"))
+    }
+
+    @Test fun `a type this Tickdroid doesn't know asks for an update`() {
+        assertEquals("Tickdroid update required", trackTypeLabel(TrackType.Unknown("future")))
+        assertEquals(
+            "Tickdroid update required · Archived 14 Aug 2026",
+            archivedSubtitle(TrackType.Unknown("future"), "14 Aug 2026"),
+        )
     }
 }

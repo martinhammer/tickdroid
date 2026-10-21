@@ -21,6 +21,8 @@ import com.martinhammer.tickdroid.widget.WidgetTestFixtures.addOneParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.coffee
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.exercise
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.floss
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.mood
+import com.martinhammer.tickdroid.widget.WidgetTestFixtures.readOnlyParams
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.today
 import com.martinhammer.tickdroid.widget.WidgetTestFixtures.toggleParams
 import org.junit.Test
@@ -57,6 +59,22 @@ class SingleTrackWidgetTest {
         onNode(hasText("Floss")).assertDoesNotExist()
         // The full name is still there for TalkBack.
         onNode(hasTestTag("widgetButton")).assert(hasContentDescription("Floss, not done"))
+    }
+
+    @Test fun unknown_type_is_read_only_with_a_question_mark_when_ticked() = runGlanceAppWidgetUnitTest {
+        render(ButtonModel.Content(today, mood))
+        onNode(hasTextEqualTo("MO")).assertExists()
+        onNode(hasTextEqualTo("?")).assertExists()
+        onNode(hasText("Choose track")).assertDoesNotExist()
+        onNode(hasTestTag("widgetButton"))
+            .assert(hasRunCallbackClickAction<ReadOnlyTapAction>(readOnlyParams(mood)))
+            .assert(hasContentDescription("Mood, Tickdroid update required"))
+    }
+
+    @Test fun unknown_type_without_a_value_draws_an_empty_cell() = runGlanceAppWidgetUnitTest {
+        render(ButtonModel.Content(today, mood.copy(value = 0)))
+        onNode(hasTextEqualTo("MO")).assertExists()
+        onNode(hasTextEqualTo("?")).assertDoesNotExist()
     }
 
     @Test fun choose_track_and_signed_out_share_the_question_tile() = runGlanceAppWidgetUnitTest {

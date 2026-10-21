@@ -9,6 +9,7 @@ import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
@@ -17,13 +18,19 @@ internal val KeyTrackServerId = ActionParameters.Key<Long>("trackServerId")
 /** The day the widget was drawn for, so a tap on a stale widget can be refused. */
 internal val KeyEpochDay = ActionParameters.Key<Long>("epochDay")
 internal val KeyDelta = ActionParameters.Key<Int>("delta")
+/** For [ReadOnlyTapAction]'s toast. */
+internal val KeyTrackName = ActionParameters.Key<String>("trackName")
 
-/** The tap action for a cell: toggle a yes/no track, or add 1 to a counter. */
+/**
+ * The tap action for a cell: toggle a yes/no track, or add 1 to a counter. A track of a type
+ * this Tickdroid doesn't know is read-only: its tap only says an update is needed.
+ */
 internal fun tickAction(row: WidgetRow, day: LocalDate): Action {
     val ids = arrayOf(KeyTrackServerId to row.serverId, KeyEpochDay to day.toEpochDay())
     return when (row.type) {
-        TrackType.BOOLEAN -> actionRunCallback<ToggleTickAction>(actionParametersOf(*ids))
-        TrackType.COUNTER -> actionRunCallback<AdjustCounterAction>(actionParametersOf(*ids, KeyDelta to 1))
+        TrackType.YesNo -> actionRunCallback<ToggleTickAction>(actionParametersOf(*ids))
+        TrackType.Counter -> actionRunCallback<AdjustCounterAction>(actionParametersOf(*ids, KeyDelta to 1))
+        is TrackType.Unknown -> actionRunCallback<ReadOnlyTapAction>(actionParametersOf(KeyTrackName to row.name))
     }
 }
 
@@ -36,6 +43,16 @@ class ToggleTickAction : ActionCallback {
 class AdjustCounterAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
         handleTap(context, parameters, delta = parameters[KeyDelta] ?: 1)
+    }
+}
+
+/** A tap on a track of a type this Tickdroid doesn't know. Writes nothing, so no stale-day check. */
+class ReadOnlyTapAction : ActionCallback {
+    override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
+        val name = parameters[KeyTrackName] ?: return
+        withContext(Dispatchers.Main) {
+            Toast.makeText(context, updateRequiredToast(name), Toast.LENGTH_SHORT).show()
+        }
     }
 }
 

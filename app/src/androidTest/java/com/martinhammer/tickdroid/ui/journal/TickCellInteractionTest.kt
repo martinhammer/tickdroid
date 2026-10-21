@@ -1,6 +1,8 @@
 package com.martinhammer.tickdroid.ui.journal
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
@@ -21,8 +23,8 @@ class TickCellInteractionTest {
     @get:Rule val rule = createComposeRule()
 
     private val today = LocalDate.parse("2026-04-30")
-    private val booleanTrack = Track(localId = 1L, serverId = 10L, name = "Meditate", type = TrackType.BOOLEAN, sortOrder = 0, private = false)
-    private val counterTrack = Track(localId = 2L, serverId = 11L, name = "Pages", type = TrackType.COUNTER, sortOrder = 1, private = false)
+    private val booleanTrack = Track(localId = 1L, serverId = 10L, name = "Meditate", type = TrackType.YesNo, sortOrder = 0, private = false)
+    private val counterTrack = Track(localId = 2L, serverId = 11L, name = "Pages", type = TrackType.Counter, sortOrder = 1, private = false)
 
     @Test fun tap_emptyBoolean_invokesToggle() {
         var toggled = 0
@@ -122,6 +124,55 @@ class TickCellInteractionTest {
         rule.onRoot().performClick()
         assertEquals(0, toggled)
         assertNull(counter)
+    }
+
+    // --- A track of a type this Tickdroid doesn't know: read-only ---
+
+    private val unknownTrack = Track(localId = 3L, serverId = 12L, name = "Mood", type = TrackType.Unknown("future"), sortOrder = 2, private = false)
+
+    private fun setUnknownCell(value: Int?, editable: Boolean, onWrite: () -> Unit) {
+        rule.setContent {
+            TickdroidTheme {
+                TickCell(
+                    track = unknownTrack,
+                    tick = value?.let { Tick(trackLocalId = 3L, date = today, value = it) },
+                    prefs = null,
+                    cellSize = 56.dp,
+                    editable = editable,
+                    onToggleBoolean = onWrite,
+                    onAdjustCounter = { onWrite() },
+                )
+            }
+        }
+    }
+
+    @Test fun tap_unknownType_onEditableDay_doesNotInvokeCallbacks() {
+        var writes = 0
+        setUnknownCell(value = 7, editable = true) { writes++ }
+        rule.onRoot().performClick()
+        rule.onRoot().performTouchInput { longClick() }
+        assertEquals(0, writes)
+    }
+
+    @Test fun tap_unknownType_onLockedDay_doesNotInvokeCallbacks() {
+        var writes = 0
+        setUnknownCell(value = null, editable = false) { writes++ }
+        rule.onRoot().performClick()
+        assertEquals(0, writes)
+    }
+
+    @Test fun unknownType_ticked_showsQuestionMark_notItsValue() {
+        setUnknownCell(value = 7, editable = true) {}
+        rule.onNodeWithText("?", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("7", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Mood, Tickdroid update required").assertExists()
+    }
+
+    @Test fun unknownType_empty_showsNothing() {
+        setUnknownCell(value = null, editable = true) {}
+        rule.onNodeWithText("?", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText("·", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("Mood, Tickdroid update required").assertExists()
     }
 
     private fun fail(msg: String): Nothing = throw AssertionError(msg)
