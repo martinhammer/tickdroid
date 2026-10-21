@@ -210,7 +210,7 @@ private fun HelpSheet(onDismiss: () -> Unit) {
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                "Tickdroid is a companion app for Tickbuddy, a daily habit tracker for Nextcloud. Please ensure that Tickbuddy is installed on your Nextcloud server before using Tickdroid.",
+                "Tickdroid is the companion app for Tickbuddy, a daily habit and event tracker for Nextcloud. Please ensure that Tickbuddy is installed on your Nextcloud server before using Tickdroid.",
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(24.dp))

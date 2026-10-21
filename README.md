@@ -1,10 +1,10 @@
 # Tickdroid
 
-Tickdroid is an Android companion app to the Nextcloud application [Tickbuddy](https://github.com/martinhammer/tickbuddy). Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
+Tickdroid is the Android companion app for [Tickbuddy](https://github.com/martinhammer/tickbuddy), the daily habit and event tracker for Nextcloud. Please note that Tickdroid cannot be used as a standalone application, as it relies on the Tickbuddy/Nextcloud back-end.
 
-The application enables users to record whether a specific event has occurred or not on daily basis. The events can be arbitrary habits or occurrences such as doing sports, smoking, taking out trash, etc. These events are tracked over time, and longer term statistics and patterns can be analysed. The idea is to encourage healthy habits, get over bad ones, or simply to keep track of things over time.
+Tickdroid lets you keep track of what happens each day, such as your meditation, exercise, or how many cups of coffee you had. Your scripts and AI agents can also log to Tickbuddy automatically, for example to record nightly backups, and their entries show up in Tickdroid too. Tickbuddy and Tickdroid are flexible: use them for habits, chores, keeping an eye on automations, or anything else that matters to you. Over time, analyse patterns and statistics with Tickbuddy’s built-in analytics.
 
-Tickdroid has been published on F-Droid app store.
+Tickdroid is available via the F-Droid app store.
 
 [<img src="https://f-droid.org/badge/get-it-on.png" alt="Get it on F-Droid" height="80">](https://f-droid.org/packages/com.martinhammer.tickdroid)
 
@@ -17,24 +17,23 @@ Some of the key features which already exist:
 * System / light / dark theme setting
 * Setting for main screen layout: days down versus tracks down
 * Setting for grid density, i.e. size of the cells
-* Add / remove / rename / toggle private / reorder / archive tracks (changes sync with Tickbuddy)
-* Custom colours and emoji icons for tracks (for phone only)
+* Add / remove / rename / toggle private / reorder / archive tracks
+* Custom colours and emoji icons for tracks
 * Landscape mode is handled gracefully
 * Three types of homepage widgets
 
 Planned features:
 * Per-track statistics and visualisations
-* Tracking of goals
 * Localisation
+* Adoption of features from the Tickbuddy roadmap (goals, notes, additional track types, etc.)
 * ...and more once these goals are achieved
 
 ### Motivation
+Tickdroid/Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, they have been evolving towards a more flexible "microjournal" concept which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
 
-This is a personal hobby project which I am using to learn about Nextcloud and Android app development and AI-assisted development. Significant portion of the code has been written by Claude Code.
+The original inspiration for Tickbuddy and Tickdroid was the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
 
-Tickbuddy and Tickdroid were originally inspired by the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/), which I had been using for a number of years. However, there isn't any active development of the app and I wanted something with a server back-end, ideally on Nextcloud.
-
-At the time of starting this project there is no equivalent app in the Nextcloud ecosystem, and the Tickmate Android application is no longer actively maintained. I am actively using Tickbuddy and Tickdroid for my personal tracking, and would be happy if others find it useful.
+This is a personal hobby project. Significant portion of the code has been written by Claude Code.
 
 ### Found a bug? Do you have a suggestion?
 
