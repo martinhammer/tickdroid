@@ -29,7 +29,7 @@ Planned features:
 * ...and more once these goals are achieved
 
 ### Motivation
-Tickdroid/Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, they have been evolving towards a more flexible "microjournal" concept which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
+Tickdroid/Tickbuddy started as a habit tracker for Nextcloud, motivated by the lack of such an app in the Nextcloud ecosystem. Whilst habit tracking is still the major use case, they have been evolving towards a more flexible "daily everything-tracker" concept which supports many use cases beyond its original scope, in particular via integration with automations and AI agents.
 
 The original inspiration for Tickbuddy and Tickdroid was the "one-bit journal" Android app [Tickmate](https://f-droid.org/en/packages/de.smasi.tickmate/).
 
