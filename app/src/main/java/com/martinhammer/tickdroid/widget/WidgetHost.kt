@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.widget
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -37,7 +38,9 @@ internal suspend fun GlanceAppWidget.provideWidgetContent(
         val inputs = latest ?: initial
         val config = remember(inputs.configRevision) { store.get(appWidgetId) }
         GlanceTheme {
-            content(inputs, config, appWidgetId)
+            CompositionLocalProvider(LocalWidgetBackground provides config.backgroundPercent()) {
+                content(inputs, config, appWidgetId)
+            }
         }
     }
 }

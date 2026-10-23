@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.widget
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceTheme
@@ -30,13 +31,31 @@ class TodayListWidgetTest {
         model: ListModel,
         badge: SyncBadge = SyncBadge(),
         size: DpSize = DpSize(300.dp, 220.dp),
+        background: Int = 100,
     ) {
         setContext(context)
         setAppWidgetSize(size)
-        provideComposable { GlanceTheme { TodayListContent(model, today, badge, appWidgetId = 7) } }
+        provideComposable {
+            GlanceTheme {
+                CompositionLocalProvider(LocalWidgetBackground provides background) {
+                    TodayListContent(model, today, badge, appWidgetId = 7)
+                }
+            }
+        }
     }
 
     private val content = ListModel.Content(today, rows, TrackLabels.Full)
+
+    @Test fun background_layer_is_drawn_only_when_translucent() {
+        // Solid keeps the root's own background; Transparent draws none.
+        for ((percent, layers) in listOf(100 to 0, 50 to 1, 0 to 0)) {
+            runGlanceAppWidgetUnitTest {
+                render(content, background = percent)
+                onAllNodes(hasTestTag("widgetBackgroundLayer")).assertCountEquals(layers)
+                onNode(hasText("Exercise")).assertExists()
+            }
+        }
+    }
 
     @Test fun header_and_rows_render() = runGlanceAppWidgetUnitTest {
         render(content)

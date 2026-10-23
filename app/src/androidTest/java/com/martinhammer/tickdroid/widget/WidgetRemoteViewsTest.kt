@@ -9,6 +9,7 @@ import android.view.ViewGroup
 import android.widget.AdapterView
 import android.appwidget.AppWidgetHostView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceId
@@ -130,6 +131,23 @@ class WidgetRemoteViewsTest {
         }
         render("single_choose", size) { SingleTrackContent(ButtonModel.ChooseTrack, SyncBadge(), 3) }
         render("single_signed_out", size) { SingleTrackContent(ButtonModel.SignedOut, SyncBadge(), 3) }
+    }
+
+    @Test fun backgrounds_allKinds() = runTest {
+        for (percent in listOf(100, 50, 0)) {
+            for (night in listOf(false, true)) {
+                val suffix = "bg${percent}${if (night) "_dark" else ""}"
+                fun content(body: @Composable () -> Unit): @Composable () -> Unit = {
+                    CompositionLocalProvider(LocalWidgetBackground provides percent, content = body)
+                }
+                render("list_$suffix", DpSize(300.dp, 260.dp), night, content { TodayListContent(list, today, SyncBadge(), 1) })
+                render("row_$suffix", DpSize(320.dp, 72.dp), night, content { TodayRowContent(list, SyncBadge(), 2) })
+                render("single_$suffix", DpSize(72.dp, 72.dp), night, content {
+                    SingleTrackContent(ButtonModel.Content(today, exercise.copy(value = 0)), SyncBadge(offlinePending = true), 3)
+                })
+                render("single_choose_$suffix", DpSize(72.dp, 72.dp), night, content { SingleTrackContent(ButtonModel.ChooseTrack, SyncBadge(), 3) })
+            }
+        }
     }
 
     private companion object {

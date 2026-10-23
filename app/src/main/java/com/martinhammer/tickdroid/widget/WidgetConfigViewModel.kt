@@ -30,7 +30,12 @@ data class WidgetConfigUiState(
     /** Non-private tracks with a server id, in journal order. */
     val tracks: List<ConfigTrack> = emptyList(),
     val labels: TrackLabels = TrackLabels.Full,
-    /** Single track: the current choice, if any. */
+    /** The widget's background strength, 0..100 ([WidgetConfig.background]). */
+    val background: Int = 100,
+    /**
+     * Single track: the current pick, if any. Null when that track isn't in [tracks] (deleted,
+     * archived or made private), so a stale saved choice can't enable Save.
+     */
     val chosenServerId: Long? = null,
 )
 
@@ -58,25 +63,44 @@ class WidgetConfigViewModel @Inject constructor(
     val isReconfigure: Boolean =
         savedStateHandle.get<Boolean>(EXTRA_FROM_WIDGET) == true || stored != null
 
+    /** Today list and Today row: the per-track choices and labels. The background is [background]. */
     private val selection = MutableStateFlow(stored as? WidgetConfig.TrackSelection ?: WidgetConfig.TrackSelection())
+
+    /** Single track: the track picked on screen, saved only by Save. */
+    private val pick = MutableStateFlow((stored as? WidgetConfig.Button)?.trackServerId)
+
+    /** Both kinds. */
+    private val background = MutableStateFlow(stored.backgroundPercent())
 
     val state: StateFlow<WidgetConfigUiState> = combine(
         authRepository.state,
         trackRepository.observeTracks(),
         trackPrefsRepository.observeAll(),
         selection,
-    ) { auth, tracks, prefs, current ->
+        combine(pick, background, ::Pair),
+    ) { auth, tracks, prefs, current, (picked, backgroundPercent) ->
+        // Private tracks are never offered, whatever "Show private tracks" says.
+        val offered = tracks
+            .filter { !it.private && it.serverId != null }
+            .map { ConfigTrack(it, prefs[it.serverId] ?: TrackPrefs(), current.isShown(it)) }
         WidgetConfigUiState(
             loaded = true,
             signedIn = auth is AuthState.SignedIn,
-            // Private tracks are never offered, whatever "Show private tracks" says.
-            tracks = tracks
-                .filter { !it.private && it.serverId != null }
-                .map { ConfigTrack(it, prefs[it.serverId] ?: TrackPrefs(), current.isShown(it)) },
+            tracks = offered,
             labels = current.labels,
-            chosenServerId = (stored as? WidgetConfig.Button)?.trackServerId,
+            background = backgroundPercent,
+            chosenServerId = picked?.takeIf { id -> offered.any { it.track.serverId == id } },
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), WidgetConfigUiState())
+
+    /** Single track: pick a track. Nothing is saved until [buttonConfig] goes to Save. */
+    fun choose(serverId: Long) {
+        pick.value = serverId
+    }
+
+    fun setBackground(percent: Int) {
+        background.value = percent
+    }
 
     fun setShown(serverId: Long, shown: Boolean) {
         selection.update { it.copy(shown = it.shown + (serverId to shown)) }
@@ -93,6 +117,10 @@ class WidgetConfigViewModel @Inject constructor(
     fun selectionConfig(): WidgetConfig.TrackSelection {
         val current = selection.value
         val explicit = state.value.tracks.associate { it.track.serverId!! to it.shown }
-        return current.copy(shown = current.shown + explicit)
+        return current.copy(shown = current.shown + explicit, background = background.value)
     }
+
+    /** Single track's setup, or null while no offered track is picked (Save is disabled then). */
+    fun buttonConfig(): WidgetConfig.Button? =
+        state.value.chosenServerId?.let { WidgetConfig.Button(trackServerId = it, background = background.value) }
 }

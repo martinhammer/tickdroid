@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A Translucent widget's background: tinted with the widget background colour and drawn at an alpha at draw time (WidgetSurface / BackgroundLayer), so the white here is irrelevant. The widget root's corner radius clips it. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="#FFFFFFFF" />
+</shape>

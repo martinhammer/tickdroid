@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.widget
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceTheme
@@ -31,13 +32,31 @@ class TodayRowWidgetTest {
         model: ListModel,
         badge: SyncBadge = SyncBadge(),
         width: Float = 320f,
+        background: Int = 100,
     ) {
         setContext(context)
         setAppWidgetSize(DpSize(width.dp, 72.dp))
-        provideComposable { GlanceTheme { TodayRowContent(model, badge, appWidgetId = 9) } }
+        provideComposable {
+            GlanceTheme {
+                CompositionLocalProvider(LocalWidgetBackground provides background) {
+                    TodayRowContent(model, badge, appWidgetId = 9)
+                }
+            }
+        }
     }
 
     private val content = ListModel.Content(today, rows, TrackLabels.Full)
+
+    @Test fun background_layer_is_drawn_only_when_translucent() {
+        // Solid keeps the root's own background; Transparent draws none.
+        for ((percent, layers) in listOf(100 to 0, 50 to 1, 0 to 0)) {
+            runGlanceAppWidgetUnitTest {
+                render(content, background = percent)
+                onAllNodes(hasTestTag("widgetBackgroundLayer")).assertCountEquals(layers)
+                onNode(hasTextEqualTo("FL")).assertExists()
+            }
+        }
+    }
 
     @Test fun columns_show_emoji_or_abbreviation_with_actions() = runGlanceAppWidgetUnitTest {
         render(content)

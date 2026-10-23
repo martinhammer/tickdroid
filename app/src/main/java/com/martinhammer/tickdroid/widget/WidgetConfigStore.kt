@@ -16,9 +16,16 @@ import javax.inject.Singleton
 /** What one placed widget shows. Keyed by `appWidgetId` in [WidgetConfigStore]. */
 @Serializable
 sealed interface WidgetConfig {
+    /**
+     * How strongly the widget's background is drawn, 0..100: 100 Solid, 50 Translucent, 0
+     * Transparent. A percentage rather than the three choices, so a slider could replace them
+     * without changing what is saved. Entries saved before it existed read as 100.
+     */
+    val background: Int
+
     /** Single track: one track, by server id (stable across pulls; local ids are not). */
     @Serializable @SerialName("button")
-    data class Button(val trackServerId: Long) : WidgetConfig
+    data class Button(val trackServerId: Long, override val background: Int = 100) : WidgetConfig
 
     /** Today list and Today row: explicit per-track choices. Tracks not in the map are shown. */
     @Serializable @SerialName("selection")
@@ -26,6 +33,7 @@ sealed interface WidgetConfig {
         val shown: Map<Long, Boolean> = emptyMap(),
         /** Today list only; the row always shows emoji or abbreviations. */
         val labels: TrackLabels = TrackLabels.Full,
+        override val background: Int = 100,
     ) : WidgetConfig
 }
 

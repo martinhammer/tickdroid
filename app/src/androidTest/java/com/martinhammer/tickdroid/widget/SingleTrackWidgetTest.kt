@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.widget
 
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.glance.GlanceTheme
@@ -31,10 +32,29 @@ class SingleTrackWidgetTest {
 
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    private fun GlanceAppWidgetUnitTest.render(model: ButtonModel, badge: SyncBadge = SyncBadge()) {
+    private fun GlanceAppWidgetUnitTest.render(model: ButtonModel, badge: SyncBadge = SyncBadge(), background: Int = 100) {
         setContext(context)
         setAppWidgetSize(DpSize(72.dp, 72.dp))
-        provideComposable { GlanceTheme { SingleTrackContent(model, badge, appWidgetId = 3) } }
+        provideComposable {
+            GlanceTheme {
+                CompositionLocalProvider(LocalWidgetBackground provides background) {
+                    SingleTrackContent(model, badge, appWidgetId = 3)
+                }
+            }
+        }
+    }
+
+    @Test fun background_layer_is_drawn_only_when_translucent_and_the_badge_disc_follows() {
+        // Offline, so the badge's disc is drawn too: at 50 it gets its own layer.
+        for ((percent, layers) in listOf(100 to 0, 50 to 2, 0 to 0)) {
+            runGlanceAppWidgetUnitTest {
+                render(ButtonModel.Content(today, exercise), SyncBadge(offlinePending = true), background = percent)
+                onAllNodes(hasTestTag("widgetBackgroundLayer")).assertCountEquals(layers)
+                onNode(hasTestTag("widgetOffline")).assertExists()
+                onNode(hasTestTag("widgetButton"))
+                    .assert(hasRunCallbackClickAction<ToggleTickAction>(toggleParams(exercise)))
+            }
+        }
     }
 
     @Test fun yes_no_toggles_and_labels_with_the_emoji_only() = runGlanceAppWidgetUnitTest {

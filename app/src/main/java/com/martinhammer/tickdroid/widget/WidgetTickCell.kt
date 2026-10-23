@@ -8,6 +8,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -28,6 +29,7 @@ import androidx.glance.appwidget.cornerRadius
 import androidx.glance.background
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Box
+import androidx.glance.layout.ContentScale
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.size
 import androidx.glance.semantics.contentDescription
@@ -46,27 +48,66 @@ import androidx.glance.color.ColorProvider as DayNightColorProvider
 
 // Shared by all three widget kinds so none of them can drift from the journal's TickCell.
 
-/** Root modifier for every widget: the launcher's background, shape and colour. */
-@Composable
-internal fun GlanceModifier.widgetRoot(): GlanceModifier = this
-    .fillMaxSize()
-    .appWidgetBackground()
-    .background(GlanceTheme.colors.widgetBackground)
-    .cornerRadius(android.R.dimen.system_app_widget_background_radius)
+/**
+ * The widget's background strength, 0..100 ([WidgetConfig.background]), provided around each
+ * widget's content by [provideWidgetContent]. Solid when nothing provides it, as in the tests.
+ */
+internal val LocalWidgetBackground = staticCompositionLocalOf { 100 }
 
 /**
- * The journal's empty-cell colour. The journal uses `surfaceContainerHighest`, which Glance's
- * colour set doesn't have, so read it from the same dynamic scheme the app uses (light and
- * dark). Unlike GlanceTheme's own colours these are fixed at draw time, so after a wallpaper
- * change they catch up on the next redraw.
+ * Every widget's root: the launcher's shape, its background at [LocalWidgetBackground] strength,
+ * then [content]. `.background()` can't take an alpha on `widgetBackground` (on Android 12+ a
+ * resource colour that follows the wallpaper, resolved by RemoteViews, not here), so anything
+ * below Solid is drawn by [BackgroundLayer] instead.
  */
 @Composable
-private fun emptyCellColor(): ColorProvider {
+internal fun WidgetSurface(
+    modifier: GlanceModifier = GlanceModifier,
+    contentAlignment: Alignment = Alignment.TopStart,
+    content: @Composable () -> Unit,
+) {
+    val percent = LocalWidgetBackground.current
+    var root = GlanceModifier.fillMaxSize().appWidgetBackground()
+        .cornerRadius(android.R.dimen.system_app_widget_background_radius)
+    // Solid keeps today's exact drawing.
+    if (percent >= 100) root = root.background(GlanceTheme.colors.widgetBackground)
+    Box(modifier = root.then(modifier), contentAlignment = contentAlignment) {
+        BackgroundLayer(percent)
+        content()
+    }
+}
+
+/**
+ * The widget background colour at [percent] strength, for 1..99; nothing otherwise. A white
+ * shape tinted at draw time, like the faint dot, so the wallpaper colour stays live. The parent's
+ * corner radius clips it.
+ */
+@Composable
+internal fun BackgroundLayer(percent: Int) {
+    if (percent !in 1..99) return
+    Image(
+        provider = ImageProvider(R.drawable.widget_background_fill),
+        contentDescription = null,
+        contentScale = ContentScale.FillBounds,
+        alpha = percent / 100f,
+        colorFilter = ColorFilter.tint(GlanceTheme.colors.widgetBackground),
+        modifier = GlanceModifier.fillMaxSize().semantics { testTag = "widgetBackgroundLayer" },
+    )
+}
+
+/**
+ * The journal's empty-cell colour at [alpha] (see [emptyCellAlpha]). The journal uses
+ * `surfaceContainerHighest`, which Glance's colour set doesn't have, so read it from the same
+ * dynamic scheme the app uses (light and dark). Unlike GlanceTheme's own colours these are fixed
+ * at draw time, so after a wallpaper change they catch up on the next redraw.
+ */
+@Composable
+private fun emptyCellColor(alpha: Float): ColorProvider {
     val context = LocalContext.current
-    return remember(context) {
+    return remember(context, alpha) {
         DayNightColorProvider(
-            day = dynamicLightColorScheme(context).surfaceContainerHighest,
-            night = dynamicDarkColorScheme(context).surfaceContainerHighest,
+            day = dynamicLightColorScheme(context).surfaceContainerHighest.copy(alpha = alpha),
+            night = dynamicDarkColorScheme(context).surfaceContainerHighest.copy(alpha = alpha),
         )
     }
 }
@@ -74,7 +115,8 @@ private fun emptyCellColor(): ColorProvider {
 /**
  * The journal cell, as a widget draws it. [row] null draws the "?" tile of a Single track widget
  * with no track. Ticked: the track colour with ✓ or the value. Not ticked: the empty-cell colour
- * with the faint dot (yes/no) or "0" (counter). A track of a type this Tickdroid doesn't know
+ * (at the background's strength, see [emptyCellAlpha]) with the faint dot (yes/no) or "0"
+ * (counter). A track of a type this Tickdroid doesn't know
  * draws "?" when ticked and nothing otherwise.
  */
 @Composable
@@ -84,7 +126,7 @@ internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier 
     val container = when {
         done && customColor != null -> ColorProvider(customColor.container)
         done -> GlanceTheme.colors.primaryContainer
-        else -> emptyCellColor()
+        else -> emptyCellColor(emptyCellAlpha(LocalWidgetBackground.current))
     }
     val onContainer = when {
         done && customColor != null -> ColorProvider(customColor.onContainer)

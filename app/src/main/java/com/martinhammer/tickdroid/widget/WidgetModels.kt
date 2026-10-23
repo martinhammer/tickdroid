@@ -72,6 +72,15 @@ internal data class WidgetInputs(
     val configRevision: Int,
 )
 
+/** The widget's background strength, 0..100; Solid (100) with no setup. Clamped, never rejected. */
+internal fun WidgetConfig?.backgroundPercent(): Int = this?.background?.coerceIn(0, 100) ?: 100
+
+/**
+ * Empty cells follow the background, but never below 60%, so they stay visible on Transparent.
+ * Ticked cells always keep their full colour.
+ */
+internal fun emptyCellAlpha(backgroundPercent: Int): Float = maxOf(backgroundPercent, 60) / 100f
+
 /** Private tracks never show on a widget, whatever "Show private tracks" says. */
 internal fun WidgetConfig.TrackSelection.isShown(track: Track): Boolean {
     val serverId = track.serverId ?: return false

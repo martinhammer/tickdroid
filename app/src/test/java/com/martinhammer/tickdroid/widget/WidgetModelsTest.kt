@@ -198,6 +198,23 @@ class WidgetModelsTest {
         assertFalse(model.row.done)
     }
 
+    @Test fun `backgroundPercent is Solid with no setup and clamps out-of-range values`() {
+        assertEquals(100, (null as WidgetConfig?).backgroundPercent())
+        assertEquals(100, WidgetConfig.Button(1, background = 100).backgroundPercent())
+        assertEquals(50, WidgetConfig.TrackSelection(background = 50).backgroundPercent())
+        assertEquals(0, WidgetConfig.Button(1, background = 0).backgroundPercent())
+        assertEquals(0, WidgetConfig.Button(1, background = -5).backgroundPercent())
+        assertEquals(100, WidgetConfig.TrackSelection(background = 250).backgroundPercent())
+    }
+
+    @Test fun `empty cells follow the background but never go below 60 percent`() {
+        assertEquals(1.0f, emptyCellAlpha(100), 0.0001f)
+        assertEquals(0.8f, emptyCellAlpha(80), 0.0001f)
+        assertEquals(0.6f, emptyCellAlpha(60), 0.0001f)
+        assertEquals(0.6f, emptyCellAlpha(50), 0.0001f)
+        assertEquals(0.6f, emptyCellAlpha(0), 0.0001f)
+    }
+
     @Test fun `abbreviation is the first two letters, upper case`() {
         assertEquals("FL", abbreviation("Floss"))
         assertEquals("X", abbreviation("x"))

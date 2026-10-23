@@ -56,21 +56,23 @@ class TodayListWidgetReceiver : TickdroidWidgetReceiver() {
 @Composable
 internal fun TodayListContent(model: ListModel, today: LocalDate, badge: SyncBadge, appWidgetId: Int) {
     val parts = headerParts(LocalSize.current.width.value)
-    Column(modifier = GlanceModifier.widgetRoot()) {
-        ListHeader(
-            today = today,
-            parts = parts,
-            badge = badge,
-            appWidgetId = appWidgetId,
-            // Signed out there's nothing to sync or edit.
-            showControls = model is ListModel.Content,
-        )
-        when {
-            model is ListModel.SignedOut -> SignedOutBody(GlanceModifier.fillMaxSize())
-            model is ListModel.Content && model.rows.isEmpty() -> NoTracksBody(appWidgetId)
-            model is ListModel.Content -> LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                items(model.rows, itemId = { it.serverId }) { row ->
-                    ListRow(row = row, day = model.day, labels = model.labels)
+    WidgetSurface {
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            ListHeader(
+                today = today,
+                parts = parts,
+                badge = badge,
+                appWidgetId = appWidgetId,
+                // Signed out there's nothing to sync or edit.
+                showControls = model is ListModel.Content,
+            )
+            when {
+                model is ListModel.SignedOut -> SignedOutBody(GlanceModifier.fillMaxSize())
+                model is ListModel.Content && model.rows.isEmpty() -> NoTracksBody(appWidgetId)
+                model is ListModel.Content -> LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+                    items(model.rows, itemId = { it.serverId }) { row ->
+                        ListRow(row = row, day = model.day, labels = model.labels)
+                    }
                 }
             }
         }

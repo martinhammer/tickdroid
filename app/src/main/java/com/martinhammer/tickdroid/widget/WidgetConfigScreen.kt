@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -37,17 +38,22 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.ui.common.TrackBadge
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,7 +78,7 @@ internal fun WidgetConfigScreen(
             )
         },
         bottomBar = {
-            if (isSelection && state.loaded && state.signedIn) {
+            if (state.loaded && state.signedIn) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -81,7 +87,12 @@ internal fun WidgetConfigScreen(
                     contentAlignment = Alignment.Center,
                 ) {
                     Button(
-                        onClick = { onSave(viewModel.selectionConfig()) },
+                        onClick = {
+                            if (isSelection) onSave(viewModel.selectionConfig())
+                            else viewModel.buttonConfig()?.let(onSave)
+                        },
+                        // Single track: a widget saved without a track would only show "Choose track".
+                        enabled = isSelection || state.chosenServerId != null,
                         modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
                     ) {
                         Text(if (viewModel.isReconfigure) "Save" else "Add widget")
@@ -105,15 +116,16 @@ internal fun WidgetConfigScreen(
             !state.signedIn -> SignedOutMessage(modifier = body, onOpenApp = onOpenApp)
             !isSelection -> TrackChoiceList(
                 modifier = body,
-                tracks = state.tracks,
-                chosenServerId = state.chosenServerId,
-                onChoose = { onSave(WidgetConfig.Button(it)) },
+                state = state,
+                onBackground = viewModel::setBackground,
+                onChoose = viewModel::choose,
             )
             else -> TrackSwitchList(
                 modifier = body,
                 kind = kind,
                 state = state,
                 onLabels = viewModel::setLabels,
+                onBackground = viewModel::setBackground,
                 onShown = viewModel::setShown,
             )
         }
@@ -147,15 +159,17 @@ private fun NoTracksMessage() {
     )
 }
 
-/** Single track: tap a track to save and close. */
+/** Single track: the background, then tap a track to pick it; Save saves. */
 @Composable
 private fun TrackChoiceList(
     modifier: Modifier,
-    tracks: List<ConfigTrack>,
-    chosenServerId: Long?,
+    state: WidgetConfigUiState,
+    onBackground: (Int) -> Unit,
     onChoose: (Long) -> Unit,
 ) {
+    val tracks = state.tracks
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) {
+        item(key = "background") { BackgroundSetting(state.background, onBackground) }
         item(key = "hint") {
             SetupHint("Choose the track for this widget. $PrivateTracksHint")
         }
@@ -165,7 +179,7 @@ private fun TrackChoiceList(
         items(items = tracks, key = { it.track.localId }) { item ->
             val serverId = item.track.serverId!!
             TrackRow(item = item, onClick = { onChoose(serverId) }) {
-                if (serverId == chosenServerId) {
+                if (serverId == state.chosenServerId) {
                     Icon(
                         Icons.Filled.Check,
                         contentDescription = "Current choice",
@@ -177,45 +191,29 @@ private fun TrackChoiceList(
     }
 }
 
-/** Today list and Today row: a switch per track, plus the list's label setting. */
-@OptIn(ExperimentalMaterial3Api::class)
+/** Today list and Today row: a switch per track, plus the list's label setting and the background. */
 @Composable
 private fun TrackSwitchList(
     modifier: Modifier,
     kind: WidgetKind,
     state: WidgetConfigUiState,
     onLabels: (TrackLabels) -> Unit,
+    onBackground: (Int) -> Unit,
     onShown: (Long, Boolean) -> Unit,
 ) {
     LazyColumn(modifier = modifier, contentPadding = PaddingValues(vertical = 8.dp)) {
         if (kind == WidgetKind.TodayList) {
             item(key = "labels") {
-                Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
-                    Text("Track labels", style = MaterialTheme.typography.bodyLarge)
-                    Spacer(Modifier.height(12.dp))
-                    val options = TrackLabels.entries
-                    SingleChoiceSegmentedButtonRow(
-                        modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
-                    ) {
-                        options.forEachIndexed { index, option ->
-                            SegmentedButton(
-                                selected = state.labels == option,
-                                onClick = { onLabels(option) },
-                                shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
-                            ) {
-                                // Display text only: the enum name is what WidgetConfigStore saves.
-                                Text(
-                                    when (option) {
-                                        TrackLabels.Full -> "Full"
-                                        TrackLabels.Short -> "Icon"
-                                    },
-                                )
-                            }
-                        }
-                    }
-                }
+                SegmentedSetting(
+                    title = "Track labels",
+                    // Display text only: the enum name is what WidgetConfigStore saves.
+                    options = listOf(TrackLabels.Full to "Full", TrackLabels.Short to "Icon"),
+                    selected = state.labels,
+                    onSelect = onLabels,
+                )
             }
         }
+        item(key = "background") { BackgroundSetting(state.background, onBackground) }
         item(key = "hint") {
             SetupHint(
                 if (kind == WidgetKind.TodayRow) {
@@ -236,6 +234,86 @@ private fun TrackSwitchList(
         }
     }
 }
+
+/** The background choices, as stored percentages ([WidgetConfig.background]) and their display text. */
+private val BackgroundChoices = listOf(100 to "Solid", 50 to "Translucent", 0 to "Transparent")
+
+@Composable
+internal fun BackgroundSetting(percent: Int, onSelect: (Int) -> Unit) {
+    SegmentedSetting(
+        title = "Background",
+        options = BackgroundChoices,
+        // The choice nearest the stored value, so one a later slider wrote still shows sensibly.
+        selected = BackgroundChoices.minBy { abs(it.first - percent) }.first,
+        onSelect = onSelect,
+    )
+}
+
+/** The smallest a segment label shrinks to: labelSmall, Material's smallest type role. */
+internal val SegmentLabelMinFontSize = 11.sp
+
+/** A titled segmented button row, as in App settings. [options] pairs each value with its text. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> SegmentedSetting(title: String, options: List<Pair<T, String>>, selected: T, onSelect: (T) -> Unit) {
+    Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)) {
+        Text(title, style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(12.dp))
+        SingleChoiceSegmentedButtonRow(
+            modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
+        ) {
+            options.forEachIndexed { index, (value, text) ->
+                val isSelected = selected == value
+                SegmentedButton(
+                    selected = isSelected,
+                    onClick = { onSelect(value) },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                ) {
+                    SegmentLabel(text, besideCheckMark = isSelected)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A segment's label: one line that shrinks only when the word doesn't fit, down to
+ * [SegmentLabelMinFontSize], and ellipsizes past that ("Translucent" and "Transparent" barely
+ * fit). LocalTextStyle here is the button's labelLarge.
+ *
+ * SegmentedButton (material3 1.4) measures its label at the segment's full width and only then
+ * puts the check mark before it, so a selected label that fills the width runs under the
+ * button's edge, and autoSize, which only sees that width, never shrinks it. So beside the mark
+ * the label measures itself narrower by the mark and its gap. Covered by SegmentLabelTest.
+ */
+@Composable
+private fun SegmentLabel(text: String, besideCheckMark: Boolean) {
+    val room = if (besideCheckMark) SegmentedButtonDefaults.IconSize + CheckMarkGap else 0.dp
+    Text(
+        text = text,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        autoSize = TextAutoSize.StepBased(
+            minFontSize = SegmentLabelMinFontSize,
+            maxFontSize = LocalTextStyle.current.fontSize,
+        ),
+        // A layout modifier, not BoxWithConstraints: the row asks its segments for intrinsic
+        // sizes, which a SubcomposeLayout refuses (a crash on opening setup).
+        modifier = Modifier.layout { measurable, constraints ->
+            val narrowed = if (constraints.hasBoundedWidth) {
+                val max = (constraints.maxWidth - room.roundToPx()).coerceAtLeast(0)
+                constraints.copy(minWidth = minOf(constraints.minWidth, max), maxWidth = max)
+            } else {
+                constraints
+            }
+            val placeable = measurable.measure(narrowed)
+            layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        },
+    )
+}
+
+/** The gap SegmentedButton leaves between its check mark and label (private there: `IconSpacing`). */
+private val CheckMarkGap = 8.dp
 
 private const val PrivateTracksHint = "Private tracks never appear on widgets."
 private const val SelectionHint =

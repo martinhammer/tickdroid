@@ -19,6 +19,7 @@ import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
+import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
@@ -57,40 +58,43 @@ private const val SignedOutButtonMinWidthDp = 220f
 @Composable
 internal fun TodayRowContent(model: ListModel, badge: SyncBadge, appWidgetId: Int) {
     val size = LocalSize.current
-    val root = GlanceModifier.widgetRoot().padding(horizontal = 8.dp)
-    when (model) {
-        ListModel.SignedOut -> Row(
-            modifier = root.clickable(openAppAction()),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Signed out",
-                maxLines = 1,
-                style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 14.sp),
-            )
-            if (size.width.value >= SignedOutButtonMinWidthDp) {
-                Spacer(modifier = GlanceModifier.width(12.dp))
-                Button(text = "Open Tickdroid", onClick = openAppAction())
-            }
-        }
-        is ListModel.Content -> Row(modifier = root, verticalAlignment = Alignment.CenterVertically) {
-            if (model.rows.isEmpty()) {
-                NoTracksInline(appWidgetId, GlanceModifier.defaultWeight())
-            } else {
-                val metrics = rowMetrics(size.height.value)
-                // Tracks that don't fit are left out from the end, with no marker.
-                model.rows.take(rowCapacity(size.width.value)).chunked(ColumnsPerGroup).forEach { group ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        group.forEach { TrackColumn(it, model.day, metrics) }
-                    }
+    // The padding goes on the inner row, not the root, or the background layer would be inset too.
+    val inner = GlanceModifier.fillMaxSize().padding(horizontal = 8.dp)
+    WidgetSurface {
+        when (model) {
+            ListModel.SignedOut -> Row(
+                modifier = inner.clickable(openAppAction()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = "Signed out",
+                    maxLines = 1,
+                    style = TextStyle(color = GlanceTheme.colors.onSurfaceVariant, fontSize = 14.sp),
+                )
+                if (size.width.value >= SignedOutButtonMinWidthDp) {
+                    Spacer(modifier = GlanceModifier.width(12.dp))
+                    Button(text = "Open Tickdroid", onClick = openAppAction())
                 }
-                // Spare width goes between the last track and the controls, which stay pinned
-                // to the end edge.
-                Spacer(modifier = GlanceModifier.defaultWeight())
             }
-            SyncSlotButton(badge = badge, target = 32.dp)
-            EditButton(appWidgetId = appWidgetId, target = 32.dp)
+            is ListModel.Content -> Row(modifier = inner, verticalAlignment = Alignment.CenterVertically) {
+                if (model.rows.isEmpty()) {
+                    NoTracksInline(appWidgetId, GlanceModifier.defaultWeight())
+                } else {
+                    val metrics = rowMetrics(size.height.value)
+                    // Tracks that don't fit are left out from the end, with no marker.
+                    model.rows.take(rowCapacity(size.width.value)).chunked(ColumnsPerGroup).forEach { group ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            group.forEach { TrackColumn(it, model.day, metrics) }
+                        }
+                    }
+                    // Spare width goes between the last track and the controls, which stay pinned
+                    // to the end edge.
+                    Spacer(modifier = GlanceModifier.defaultWeight())
+                }
+                SyncSlotButton(badge = badge, target = 32.dp)
+                EditButton(appWidgetId = appWidgetId, target = 32.dp)
+            }
         }
     }
 }

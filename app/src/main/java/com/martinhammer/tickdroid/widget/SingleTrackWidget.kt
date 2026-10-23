@@ -64,9 +64,8 @@ internal fun SingleTrackContent(model: ButtonModel, badge: SyncBadge, appWidgetI
             cellDescription(model.row),
         )
     }
-    Box(
-        modifier = GlanceModifier.widgetRoot()
-            .clickable(action)
+    WidgetSurface(
+        modifier = GlanceModifier.clickable(action)
             .semantics { contentDescription = description; testTag = "widgetButton" },
         contentAlignment = Alignment.Center,
     ) {
@@ -103,16 +102,22 @@ internal fun SingleTrackContent(model: ButtonModel, badge: SyncBadge, appWidgetI
     }
 }
 
-/** Corner badge while unsent ticks can't go up. Not tappable here: the tap still ticks. */
+/**
+ * Corner badge while unsent ticks can't go up. Not tappable here: the tap still ticks. Its disc
+ * follows the widget's background, as [WidgetSurface] draws it: solid, a [BackgroundLayer], or
+ * none. It keeps its size in every case, so the symbol doesn't move.
+ */
 @Composable
 private fun OfflineBadge() {
+    val percent = LocalWidgetBackground.current
+    var disc = GlanceModifier.size(16.dp).cornerRadius(8.dp)
+    if (percent >= 100) disc = disc.background(GlanceTheme.colors.widgetBackground)
     Box(
-        modifier = GlanceModifier.size(16.dp)
-            .cornerRadius(8.dp)
-            .background(GlanceTheme.colors.widgetBackground)
+        modifier = disc
             .semantics { contentDescription = "Unsaved changes, not synced"; testTag = "widgetOffline" },
         contentAlignment = Alignment.Center,
     ) {
+        BackgroundLayer(percent)
         Image(
             provider = ImageProvider(R.drawable.ic_widget_cloud_off),
             contentDescription = null,
