@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.di
 import android.content.Context
 import androidx.room.Room
 import com.martinhammer.tickdroid.data.local.MIGRATION_2_3
+import com.martinhammer.tickdroid.data.local.MIGRATION_3_4
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
@@ -22,7 +23,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TickdroidDatabase =
         Room.databaseBuilder(context, TickdroidDatabase::class.java, TickdroidDatabase.NAME)
-            .addMigrations(MIGRATION_2_3)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
             .build()
 
     @Provides

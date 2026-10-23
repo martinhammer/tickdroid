@@ -11,6 +11,7 @@ import com.martinhammer.tickdroid.data.auth.Credentials
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.remote.OcsHeadersInterceptor
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.data.remote.dto.TickbuddyCapability
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -37,6 +38,9 @@ class SyncTestRig {
      * response meant for the API calls that follow.
      */
     @Volatile var archivedTracks = false
+    @Volatile var booleanSet = false
+    @Volatile var counterIncrement = false
+    @Volatile var idempotencyKey = false
 
     /** Replaces the capabilities answer (a 500, a broken reply), when set. */
     @Volatile var capabilitiesOverride: MockResponse? = null
@@ -69,8 +73,23 @@ class SyncTestRig {
 
     fun capabilitiesResponse(): MockResponse = capabilitiesOverride ?: MockResponse().setResponseCode(200).setBody(
         """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"capabilities":""" +
-            """{"tickbuddy":{"version":"1.3.0","apiVersion":1,"features":{"archivedTracks":$archivedTracks}}}}}}""",
+            """{"tickbuddy":{"version":"1.3.0","apiVersion":1,"features":{"archivedTracks":$archivedTracks,""" +
+            """"booleanSet":$booleanSet,"counterIncrement":$counterIncrement,"idempotencyKey":$idempotencyKey}}}}}}""",
     )
+
+    /** Stores the flags above in [serverFeatures] straight away, as a pull would. */
+    fun seedServerFeatures() {
+        serverFeatures.update(
+            TickbuddyCapability(
+                features = mapOf(
+                    "archivedTracks" to archivedTracks,
+                    "booleanSet" to booleanSet,
+                    "counterIncrement" to counterIncrement,
+                    "idempotencyKey" to idempotencyKey,
+                ),
+            ),
+        )
+    }
 
     val db: TickdroidDatabase = Room
         .inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java)

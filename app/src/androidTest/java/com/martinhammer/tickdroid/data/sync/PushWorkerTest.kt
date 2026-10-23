@@ -7,6 +7,7 @@ import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TrackEntity
+import com.martinhammer.tickdroid.data.repository.TickRepository
 import com.martinhammer.tickdroid.data.time.Clock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -15,15 +16,20 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.LocalDate
+import java.util.UUID
 
 class PushWorkerTest {
 
@@ -40,6 +46,16 @@ class PushWorkerTest {
         override suspend fun show(text: String) {
             shown += text
         }
+    }
+
+    /** Taps go through the real write path; the push they'd schedule is run by hand. */
+    private val repo by lazy {
+        val scheduler = object : SyncScheduler(rig.context) {
+            override fun schedulePushNow() {}
+            override fun schedulePeriodicPush() {}
+            override fun cancelAll() {}
+        }
+        TickRepository(rig.db.tickDao(), rig.db, scheduler)
     }
 
     @Before fun setUp() {
@@ -70,6 +86,7 @@ class PushWorkerTest {
                     clock = fixedClock,
                     json = rig.json,
                     pushNotices = notices,
+                    serverFeatures = rig.serverFeatures,
                 )
             })
             .build()
@@ -529,5 +546,362 @@ class PushWorkerTest {
 
         assertTrue(rig.db.tickDao().find(track, today.toString())!!.dirty)
         assertEquals(emptyList<String>(), notices.shown)
+    }
+    // --- set for yes/no, increment for counters ---
+
+    /** A Tickbuddy 2.3.0: `set` for yes/no, `increment` with `Idempotency-Key` for counters. */
+    private fun serverWithIncrement() {
+        rig.booleanSet = true
+        rig.counterIncrement = true
+        rig.idempotencyKey = true
+        rig.seedServerFeatures()
+    }
+
+    private fun RecordedRequest.form(): Map<String, String> =
+        body.readUtf8().split('&').associate { it.substringBefore('=') to it.substringAfter('=') }
+
+    /** The quoted UUID of an `Idempotency-Key` header (a Structured Fields string). */
+    private fun RecordedRequest.idempotencyKey(): String {
+        val header = checkNotNull(getHeader("Idempotency-Key")) { "no Idempotency-Key" }
+        assertTrue("quoted: $header", header.length > 2 && header.startsWith('"') && header.endsWith('"'))
+        return header.removeSurrounding("\"").also { UUID.fromString(it) }
+    }
+
+    /** The pull after a drain, for a server that still has the track (so it isn't swept). */
+    private fun enqueuePull(serverId: Long, type: String, ticks: String = "") {
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"id":$serverId,"name":"T$serverId","type":"$type","sortOrder":0,"private":false}]}}""",
+        )
+        rig.enqueueJson("""{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[$ticks]}}""")
+    }
+
+    private fun serverTick(serverId: Long, value: Int) = """{"id":50,"trackId":$serverId,"date":"$today","value":$value}"""
+
+    @Test fun counter_withIncrement_sendsTheDelta() = runTest {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(3))
+        enqueuePull(11L, "counter", serverTick(11L, 3))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val request = rig.takeApiRequest()
+        assertTrue("expected /increment, got ${request.path}", request.path!!.endsWith("/ticks/increment"))
+        request.idempotencyKey()
+        assertEquals(mapOf("trackId" to "11", "date" to today.toString(), "delta" to "1"), request.form())
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(3, row.value)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun tapDuringPush_isKept() = runBlocking {
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +1)
+
+        val worker = buildWorker()
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), worker.doWork()) }
+        val first = rig.takeApiRequest() // in flight: its answer isn't queued yet
+        assertEquals("3", first.form()["value"])
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(3))
+        enqueuePull(11L, "counter", serverTick(11L, 3))
+        run.join()
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals("the server's 3 plus the tap", 4, row.value)
+        assertTrue("the tap is still to go up", row.dirty)
+
+        rig.enqueueJson(setOk(4))
+        enqueuePull(11L, "counter", serverTick(11L, 4))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest(); rig.takeApiRequest() // the first run's pull
+        assertEquals("4", rig.takeApiRequest().form()["value"])
+        val settled = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(4, settled.value)
+        assertFalse(settled.dirty)
+    }
+
+    @Test fun untickDuringYesNoSet_isKept() = runBlocking {
+        rig.booleanSet = true
+        rig.seedServerFeatures()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        repo.toggleBoolean(track, today)
+
+        val worker = buildWorker()
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), worker.doWork()) }
+        val first = rig.takeApiRequest()
+        assertTrue("expected /set, got ${first.path}", first.path!!.endsWith("/ticks/set"))
+        assertEquals("1", first.form()["value"])
+        repo.toggleBoolean(track, today)
+        rig.enqueueJson(setOk(1))
+        enqueuePull(10L, "boolean", serverTick(10L, 1))
+        run.join()
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertTrue("the untick is kept", row.deleted)
+        assertTrue(row.dirty)
+
+        rig.enqueueJson(setOk(0))
+        enqueuePull(10L, "boolean")
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest(); rig.takeApiRequest()
+        assertEquals("0", rig.takeApiRequest().form()["value"])
+        assertNull(rig.db.tickDao().find(track, today.toString()))
+    }
+    @Test fun tapDuringIncrement_isKept_andGoesUpWithANewKey() = runBlocking {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +1)
+
+        val worker = buildWorker()
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), worker.doWork()) }
+        val first = rig.takeApiRequest()
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(3))
+        enqueuePull(11L, "counter", serverTick(11L, 3))
+        run.join()
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(4, row.value)
+        assertEquals(1, row.pendingDelta)
+        assertTrue(row.dirty)
+        assertNull("the first request is settled", row.sentKey)
+
+        rig.enqueueJson(setOk(4))
+        enqueuePull(11L, "counter", serverTick(11L, 4))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest(); rig.takeApiRequest()
+        val second = rig.takeApiRequest()
+        assertEquals("1", second.form()["delta"])
+        assertNotEquals(first.idempotencyKey(), second.idempotencyKey())
+        assertFalse(rig.db.tickDao().find(track, today.toString())!!.dirty)
+    }
+
+    @Test fun yesNo_withBooleanSet_setsWithoutReadingFirst() = runTest {
+        rig.booleanSet = true
+        rig.seedServerFeatures()
+        val ticked = seedTrack(serverId = 10L, type = "boolean")
+        val unticked = seedTrack(serverId = 12L, type = "boolean")
+        seedDirty(ticked)
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = 70L, trackLocalId = unticked, date = today.toString(), value = 0, dirty = true, deleted = true),
+        )
+        rig.enqueueJson(setOk(1))
+        rig.enqueueJson(setOk(0))
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val on = rig.takeApiRequest()
+        assertTrue("no read first: ${on.path}", on.path!!.endsWith("/ticks/set"))
+        assertEquals(mapOf("trackId" to "10", "date" to today.toString(), "value" to "1"), on.form())
+        val off = rig.takeApiRequest()
+        assertTrue(off.path!!.endsWith("/ticks/set"))
+        assertEquals("0", off.form()["value"])
+        assertTrue("then the pull", rig.takeApiRequest().path!!.contains("/tracks"))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+    }
+
+    @Test fun yesNo_setAnsweredTrue_settlesTheRow() = runTest {
+        // A 2.3.0 pre-release answered true / false.
+        rig.booleanSet = true
+        rig.seedServerFeatures()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedDirty(track)
+        rig.enqueueJson("""{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"value":true}}}""")
+        enqueuePull(10L, "boolean", serverTick(10L, 1))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(1, row.value)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun counter_pendingZero_noRequest_rowSettled() = runTest {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        repo.adjustCounter(track, today, +1)
+        repo.adjustCounter(track, today, -1) // never reached the server
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertTrue("only the pull", rig.takeApiRequest().path!!.contains("/tracks"))
+        assertNull(rig.db.tickDao().find(track, today.toString()))
+    }
+
+    @Test fun counter_queuedBeforeTheUpdate_goesUpAbsolute_evenWithIncrement() = runTest {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        seedDirty(track, value = 5) // pendingDelta null, as MIGRATION_3_4 leaves it
+        rig.enqueueJson(setOk(5))
+        enqueuePull(11L, "counter", serverTick(11L, 5))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val request = rig.takeApiRequest()
+        assertTrue(request.path!!.endsWith("/ticks/set"))
+        assertEquals("5", request.form()["value"])
+        assertNull(request.getHeader("Idempotency-Key"))
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertFalse(row.dirty)
+        assertNull(row.pendingDelta)
+    }
+
+    @Test fun counterIncrementWithoutIdempotencyKey_goesUpAbsolute() = runTest {
+        rig.booleanSet = true
+        rig.counterIncrement = true
+        rig.seedServerFeatures()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(3))
+        enqueuePull(11L, "counter", serverTick(11L, 3))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val request = rig.takeApiRequest()
+        assertTrue(request.path!!.endsWith("/ticks/set"))
+        assertEquals("3", request.form()["value"])
+        assertFalse(rig.db.tickDao().find(track, today.toString())!!.dirty)
+    }
+
+    @Test fun increment_answerIncludesAnotherDevicesChange() = runTest {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(4)) // a script added 1 meanwhile
+        enqueuePull(11L, "counter", serverTick(11L, 4))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(4, row.value)
+        assertFalse(row.dirty)
+    }
+
+    /** One run whose increment the server applied but whose answer never arrived. */
+    private suspend fun lostAnswer(answer: MockResponse) {
+        rig.enqueue(answer)
+        assertEquals(ListenableWorker.Result.retry(), buildWorker().doWork())
+    }
+
+    private suspend fun incrementWithLostAnswer_resendsTheSameRequest(answer: MockResponse) {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 2))
+        repo.adjustCounter(track, today, +2)
+
+        lostAnswer(answer)
+
+        val first = rig.takeApiRequest()
+        val kept = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(first.idempotencyKey(), kept.sentKey)
+        assertEquals(2, kept.sentDelta)
+        assertTrue(kept.dirty)
+
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(setOk(4)) // the repeat, answered as the first request was
+        enqueuePull(11L, "counter", serverTick(11L, 4))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val repeat = rig.takeApiRequest()
+        assertEquals("the same key", first.idempotencyKey(), repeat.idempotencyKey())
+        assertEquals("the same delta, not the tap since", "2", repeat.form()["delta"])
+        val afterRepeat = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(5, afterRepeat.value)
+        assertEquals(1, afterRepeat.pendingDelta)
+        assertNull(afterRepeat.sentKey)
+
+        rig.takeApiRequest(); rig.takeApiRequest() // the pull
+        rig.enqueueJson(setOk(5))
+        enqueuePull(11L, "counter", serverTick(11L, 5))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val next = rig.takeApiRequest()
+        assertEquals("1", next.form()["delta"])
+        assertNotEquals(first.idempotencyKey(), next.idempotencyKey())
+        val settled = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(5, settled.value)
+        assertFalse(settled.dirty)
+    }
+
+    @Test fun incrementWithAnswerCutOff_resendsTheSameKeyAndDelta() = runTest {
+        // The server applied it; the connection dropped while its answer came back.
+        incrementWithLostAnswer_resendsTheSameRequest(
+            MockResponse().setBody(setOk(4) + " ".repeat(4096)).setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY),
+        )
+    }
+
+    @Test fun incrementAnswered502WithoutReason_resendsTheSameKeyAndDelta() = runTest {
+        // A proxy's answer: the increment may or may not have reached Tickbuddy.
+        incrementWithLostAnswer_resendsTheSameRequest(MockResponse().setResponseCode(502).setBody("Bad Gateway"))
+    }
+
+    @Test fun incrementKeyIsInRoomBeforeTheRequestLeaves_keptWhenCancelled() = runBlocking {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 11L, type = "counter")
+        repo.adjustCounter(track, today, +1)
+        rig.enqueue(MockResponse().setHeadersDelay(30, TimeUnit.SECONDS))
+
+        val worker = buildWorker()
+        val job = launch(Dispatchers.IO) { worker.doWork() }
+        val request = rig.takeApiRequest()
+        val inFlight = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(request.idempotencyKey(), inFlight.sentKey)
+        assertEquals(1, inFlight.sentDelta)
+        job.cancel()
+        job.join()
+
+        val after = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(inFlight.sentKey, after.sentKey)
+        assertEquals(1, after.sentDelta)
+        assertTrue(after.dirty)
+    }
+
+    @Test fun increment422KeyReused_dropped_queueMovesOn() = runTest {
+        serverWithIncrement()
+        val first = seedTrack(serverId = 10L, type = "counter")
+        val second = seedTrack(serverId = 11L, type = "counter")
+        repo.adjustCounter(first, today, +1)
+        repo.adjustCounter(second, today, +1)
+        rig.enqueueJson(refusal(422, "idempotencyKeyReused", "This Idempotency-Key was already used for another request"), code = 422)
+        rig.enqueueJson(setOk(1))
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertTrue(rig.takeApiRequest().path!!.endsWith("/ticks/increment"))
+        assertTrue("the queue moved on", rig.takeApiRequest().path!!.endsWith("/ticks/increment"))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(emptyList<String>(), notices.shown)
+    }
+
+    @Test fun increment423_dropped_oneNotice() = runTest {
+        serverWithIncrement()
+        val track = seedTrack(serverId = 10L, type = "counter")
+        repo.adjustCounter(track, today.minusDays(1), +1)
+        repo.adjustCounter(track, today, +1)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        rig.enqueueJson(archivedRefusal("T10"), code = 423)
+        enqueueDailyPullAfterPush()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val increment = rig.takeApiRequest()
+        assertTrue(increment.path!!.endsWith("/ticks/increment"))
+        assertEquals("handling=strict", increment.getHeader("Prefer"))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
     }
 }

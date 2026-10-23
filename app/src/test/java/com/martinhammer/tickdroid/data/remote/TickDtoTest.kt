@@ -1,6 +1,7 @@
 package com.martinhammer.tickdroid.data.remote
 
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
+import com.martinhammer.tickdroid.data.remote.dto.TickYesNoResponse
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -37,5 +38,12 @@ class TickDtoTest {
                 {"id":3,"trackId":2,"date":"2026-10-21","value":1}]""",
         )
         assertEquals(listOf(3, 1, 1), ticks.map { it.value })
+    }
+
+    @Test fun `set's yes-no answer reads 1 and 0 as well as true and false`() {
+        val expected = mapOf("1" to 1, "0" to 0, "true" to 1, "false" to 0)
+        expected.forEach { (raw, value) ->
+            assertEquals("value $raw", value, json.decodeFromString(TickYesNoResponse.serializer(), """{"value":$raw}""").value)
+        }
     }
 }

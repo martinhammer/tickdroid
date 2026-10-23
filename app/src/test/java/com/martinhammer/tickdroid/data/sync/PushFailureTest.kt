@@ -21,6 +21,11 @@ class PushFailureTest {
         assertEquals(PushFailure.Drop, pushFailureFor(400, "wrongTrackType"))
     }
 
+    @Test fun `422 with a reason (a reused Idempotency-Key) is dropped, without one retried`() {
+        assertEquals(PushFailure.Drop, pushFailureFor(422, "idempotencyKeyReused"))
+        assertEquals(PushFailure.Retry, pushFailureFor(422, null))
+    }
+
     @Test fun `404 and 400 without a reason are retried`() {
         // Nextcloud's own 404 while Tickbuddy is disabled: dropping would lose queued ticks.
         assertEquals(PushFailure.Retry, pushFailureFor(404, null))

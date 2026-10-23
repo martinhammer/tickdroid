@@ -20,21 +20,34 @@ import com.martinhammer.tickdroid.domain.TrackType
 import androidx.room.withTransaction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import retrofit2.HttpException
 import java.io.IOException
+import java.util.UUID
 import javax.net.ssl.SSLException
 import kotlin.coroutines.cancellation.CancellationException
 
 /**
- * Drains every dirty tick row to the server. Boolean ticks use the spec's replay-safe
- * pattern (fetch current server state for the day; only `/toggle` if it differs).
- * Counter ticks use the idempotent `/set`.
+ * Drains every dirty tick row to the server, by kind of day ([ServerFeatures], as last seen):
+ * - **Yes/no**, with `booleanSet`: `set` with 1 or 0, safe to repeat. Without it, the spec's
+ *   replay-safe pattern: read the server's day, and `toggle` only if it differs.
+ * - **Counter** whose change is known (`pendingDelta`), with `counterIncrement` and
+ *   `idempotencyKey`: `increment` by that change, so other devices' and scripts' changes are kept.
+ *   An increment isn't safe to repeat, so its key and delta are written to Room before it goes
+ *   out and resent unchanged until an answer arrives; the server answers a repeat as it answered
+ *   the first. Otherwise, and for a change queued before v4 (`pendingDelta == null`): `set` with
+ *   the absolute value.
+ *
+ * Each row is re-read just before it is sent (taps don't take the sync lock), and settled
+ * against what it holds by the time the answer arrives, so a tap made during a request is kept
+ * and sent by the next run. Only the push deletes rows: once the server says the day is empty.
  *
  * After an HTTP error on one row ([pushFailureFor]): 401 signs the user out and stops for good;
  * 423 (a read-only, i.e. archived, track) drops that tick, carries on and tells the user once per
- * track ([PushNotices], after the pull); 404 / 400 carrying a Tickbuddy `reason` (track deleted
- * elsewhere, or a bug) drops it silently and carries on; anything else, and IO / TLS failures,
+ * track ([PushNotices], after the pull); 404 / 400 / 422 carrying a Tickbuddy `reason` (track
+ * deleted elsewhere, or a bug) drops it silently and carries on; anything else, and IO / TLS failures,
  * stop the drain and retry with exponential backoff. Track changes are online only, so we never
  * push tracks.
  */
@@ -51,6 +64,7 @@ class PushWorker @AssistedInject constructor(
     private val clock: Clock,
     private val json: Json,
     private val pushNotices: PushNotices,
+    private val serverFeatures: ServerFeatures,
 ) : CoroutineWorker(appContext, params) {
 
     /**
@@ -101,8 +115,10 @@ class PushWorker @AssistedInject constructor(
         syncManager.reportPushStatus(PushStatus.Pushing)
         try {
             val tracks = trackDao.getAll().associateBy { it.localId }
-            for (entity in dirty) {
-                val track = tracks[entity.trackLocalId] ?: continue
+            for (queued in dirty) {
+                val track = tracks[queued.trackLocalId] ?: continue
+                // The snapshot only gives the order: a tap may have changed the row since.
+                val entity = tickDao.findById(queued.localId)?.takeIf { it.dirty } ?: continue
                 try {
                     pushOne(track, entity)
                 } catch (e: HttpException) {
@@ -117,7 +133,11 @@ class PushWorker @AssistedInject constructor(
                             tickDao.deleteById(entity.localId)
                             noteRefusal(track, body)
                         }
-                        PushFailure.Drop -> tickDao.deleteById(entity.localId)
+                        PushFailure.Drop -> {
+                            // 422 is a reused Idempotency-Key: only a bug here can cause one.
+                            if (e.code() == 422) Log.w(TAG, "Dropping a tick refused with HTTP 422")
+                            tickDao.deleteById(entity.localId)
+                        }
                         PushFailure.Retry -> {
                             syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
                             return Result.retry()
@@ -162,8 +182,8 @@ class PushWorker @AssistedInject constructor(
         val serverId = track.serverId ?: return // unsynced track — wait until pull picks it up
 
         when (val type = TrackType.fromWire(track.type)) {
-            TrackType.Counter -> pushCounter(track, serverId, entity)
-            TrackType.YesNo -> pushBoolean(track, serverId, entity)
+            TrackType.Counter -> pushCounter(serverId, entity)
+            TrackType.YesNo -> pushBoolean(serverId, entity)
             // Read-only, so only a bug can queue one. Drop it unsent rather than guess what the
             // server would make of it, or the "unsaved changes" chip would stay on for good.
             is TrackType.Unknown -> {
@@ -173,14 +193,68 @@ class PushWorker @AssistedInject constructor(
         }
     }
 
-    private suspend fun pushCounter(track: TrackEntity, serverId: Long, entity: TickEntity) {
-        val desired = if (entity.deleted) 0 else entity.value
-        val response = api.setTick(trackId = serverId, date = entity.date, value = desired).ocs.data
-        finalize(entity, newValue = response.value, newServerId = entity.serverId)
+    private suspend fun pushCounter(serverId: Long, entity: TickEntity) {
+        val pending = entity.pendingDelta
+        val absolute = if (entity.deleted) 0 else entity.value
+        when {
+            pending == null -> {
+                val response = api.setTick(trackId = serverId, date = entity.date, value = absolute).ocs.data
+                settleAbsolute(entity, response.value)
+            }
+            // Taps that cancelled out: nothing to send (never an increment by 0, which the
+            // server refuses). Settles, i.e. deletes, a row at 0 that never reached the server.
+            pending == 0 && entity.sentKey == null -> settleDelta(entity.localId, sent = 0, serverValue = entity.value)
+            serverFeatures.counterIncrement.value && serverFeatures.idempotencyKey.value -> pushIncrement(serverId, entity)
+            else -> {
+                // An older server: the absolute value. The bookkeeping carries on (and any key of
+                // a server rolled back since is dropped), so nothing is lost when it's updated.
+                val response = api.setTick(trackId = serverId, date = entity.date, value = absolute).ocs.data
+                settleDelta(entity.localId, sent = pending, serverValue = response.value)
+            }
+        }
     }
 
-    private suspend fun pushBoolean(track: TrackEntity, serverId: Long, entity: TickEntity) {
-        val desiredTicked = !entity.deleted && entity.value > 0
+    /**
+     * Sends the row's increment that awaits an answer, or claims a new one first. With no answer
+     * (IO, TLS, a retried HTTP error, a cancelled worker) nothing changes, so the next run resends
+     * exactly the same request, whatever was tapped since: the draft standard forbids reusing a
+     * key with a different body, and a new key could count a lost-but-applied increment twice.
+     * Taps made meanwhile go up in the request after it. The server keeps keys for 30 days.
+     */
+    private suspend fun pushIncrement(serverId: Long, entity: TickEntity) {
+        val (key, delta) = claimIncrement(entity.localId) ?: return
+        // A Structured Fields string (RFC 9651), so in double quotes.
+        val response = api.incrementTick(
+            trackId = serverId,
+            date = entity.date,
+            delta = delta,
+            idempotencyKey = "\"$key\"",
+        ).ocs.data
+        settleDelta(entity.localId, sent = delta, serverValue = response.value)
+    }
+
+    /** The row's key and delta, written before the request leaves; null if there's nothing to send. */
+    private suspend fun claimIncrement(localId: Long): Pair<String, Int>? = transaction {
+        val current = tickDao.findById(localId)?.takeIf { it.dirty } ?: return@transaction null
+        val sentKey = current.sentKey
+        val sentDelta = current.sentDelta
+        if (sentKey != null && sentDelta != null) return@transaction sentKey to sentDelta
+        // Changed since the drain read it: the next run takes it from the top.
+        val delta = current.pendingDelta?.takeIf { it != 0 } ?: return@transaction null
+        val key = UUID.randomUUID().toString()
+        tickDao.update(current.copy(sentKey = key, sentDelta = delta))
+        key to delta
+    }
+
+    private suspend fun pushBoolean(serverId: Long, entity: TickEntity) {
+        val desiredTicked = entity.isTicked()
+
+        if (serverFeatures.booleanSet.value) {
+            val response = api.setYesNo(trackId = serverId, date = entity.date, value = if (desiredTicked) 1 else 0).ocs.data
+            // The server's answer wins (with Prefer: handling=strict it can only differ by a bug).
+            settleYesNo(entity.localId, sent = desiredTicked, serverTicked = response.value > 0)
+            return
+        }
 
         // Fetch current server state for this single day to avoid replaying a stale toggle.
         val sameDay = api.getTicks(from = entity.date, to = entity.date, includeAllTypes = true).ocs.data
@@ -188,29 +262,79 @@ class PushWorker @AssistedInject constructor(
 
         if (serverTicked != desiredTicked) {
             val response = api.toggleTick(trackId = serverId, date = entity.date).ocs.data
-            // After the toggle, server's state is response.ticked. If it now matches desired, finalize;
+            // After the toggle, server's state is response.ticked. If it now matches desired, settle;
             // otherwise something concurrent happened — wait for the next pull to reconcile.
             if (response.ticked != desiredTicked) return
         }
-        finalize(entity, newValue = if (desiredTicked) 1 else 0, newServerId = entity.serverId)
+        settleYesNo(entity.localId, sent = desiredTicked, serverTicked = desiredTicked)
     }
 
-    private suspend fun finalize(entity: TickEntity, newValue: Int, newServerId: Long?) {
-        database.withTransaction {
-            if (newValue == 0) {
-                tickDao.deleteById(entity.localId)
-            } else {
-                tickDao.update(
-                    entity.copy(
-                        value = newValue,
-                        serverId = newServerId ?: entity.serverId,
-                        dirty = false,
-                        deleted = false,
-                    ),
-                )
-            }
+    // The settle steps re-read the row: a tap may have changed it while the request was out.
+
+    /** A tap that changed the day's desired state during the request leaves it for the next run. */
+    private suspend fun settleYesNo(localId: Long, sent: Boolean, serverTicked: Boolean) = transaction {
+        val current = tickDao.findById(localId) ?: return@transaction
+        if (current.isTicked() != sent) return@transaction
+        settleTo(current, if (serverTicked) 1 else 0)
+    }
+
+    /** An absolute `set`: settles only if no tap changed the row meanwhile (it stays absolute). */
+    private suspend fun settleAbsolute(sent: TickEntity, serverValue: Int) = transaction {
+        val current = tickDao.findById(sent.localId) ?: return@transaction
+        val unchanged = current.value == sent.value && current.deleted == sent.deleted && current.pendingDelta == null
+        if (unchanged) settleTo(current, serverValue)
+    }
+
+    /**
+     * The server applied [sent] of the row's pending change and is now at [serverValue]. What
+     * was tapped since stays pending, on top of the server's value; any increment key is done.
+     */
+    private suspend fun settleDelta(localId: Long, sent: Int, serverValue: Int) = transaction {
+        val current = tickDao.findById(localId) ?: return@transaction
+        val remaining = (current.pendingDelta ?: 0) - sent
+        if (remaining == 0) {
+            settleTo(current, serverValue)
+        } else {
+            val value = (serverValue + remaining).coerceAtLeast(0)
+            tickDao.update(
+                current.copy(
+                    value = value,
+                    deleted = value == 0,
+                    dirty = true,
+                    pendingDelta = remaining,
+                    sentDelta = null,
+                    sentKey = null,
+                ),
+            )
         }
     }
+
+    /** Clean at the server's [value]; at 0 the row goes. */
+    private suspend fun settleTo(current: TickEntity, value: Int) {
+        if (value == 0) {
+            tickDao.deleteById(current.localId)
+        } else {
+            tickDao.update(
+                current.copy(
+                    value = value,
+                    dirty = false,
+                    deleted = false,
+                    pendingDelta = null,
+                    sentDelta = null,
+                    sentKey = null,
+                ),
+            )
+        }
+    }
+
+    /**
+     * An answer that arrived is recorded even if the worker is being stopped: a cancelled caller
+     * would otherwise have Room close the connection mid-transaction (see `SyncManager.schedulePull`).
+     */
+    private suspend fun <T> transaction(block: suspend () -> T): T =
+        withContext(NonCancellable) { database.withTransaction { block() } }
+
+    private fun TickEntity.isTicked() = !deleted && value > 0
 }
 
 /** What the drain does with one dirty row after an HTTP error. */
@@ -226,6 +350,8 @@ internal fun pushFailureFor(code: Int, reason: String?): PushFailure = when {
     // Tickbuddy's own answer (it carries a reason): track deleted elsewhere, or a bug. Drop it,
     // say nothing. Without a reason it is Nextcloud's own 404 (Tickbuddy disabled, e.g. during
     // a Nextcloud upgrade), a proxy or an older Tickbuddy: retry, or queued ticks would be lost.
-    (code == 404 || code == 400) && reason != null -> PushFailure.Drop
+    // 422 with a reason: an Idempotency-Key reused for another request, which only a bug here
+    // can cause (a key's request never changes); drop it like a 400.
+    (code == 404 || code == 400 || code == 422) && reason != null -> PushFailure.Drop
     else -> PushFailure.Retry // stop and retry with backoff
 }

@@ -1,0 +1,1 @@
+Counters no longer lose changes made on another device or by a script, or when tapping quickly.

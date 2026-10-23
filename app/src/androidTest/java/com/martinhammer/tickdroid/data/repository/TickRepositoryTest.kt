@@ -87,13 +87,30 @@ class TickRepositoryTest {
         assertTrue(row.dirty)
     }
 
-    @Test fun toggleBoolean_localOnly_dropsRow() = runTest {
+    @Test fun toggleBoolean_pushedButNotYetPulled_marksForRemoval() = runTest {
+        // A push never fills in serverId (only a pull does), so a null one doesn't mean "never
+        // reached the server". Deleting the row here used to leave the server's tick in place.
         val trackId = seedTrack()
-        repo.toggleBoolean(trackId, date) // creates local-only on row
+        db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = trackId, date = date.toString(), value = 1))
 
-        repo.toggleBoolean(trackId, date) // should drop it (no serverId)
+        repo.toggleBoolean(trackId, date)
 
-        assertNull(db.tickDao().find(trackId, date.toString()))
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(0, row.value)
+        assertTrue(row.deleted)
+        assertTrue(row.dirty)
+    }
+
+    @Test fun toggleBoolean_tickThenUntickBeforeThePush_leavesARemovalToPush() = runTest {
+        val trackId = seedTrack()
+        repo.toggleBoolean(trackId, date)
+
+        repo.toggleBoolean(trackId, date)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertTrue(row.deleted)
+        assertTrue(row.dirty)
+        assertEquals(2, scheduler.pushNowCalls)
     }
 
     @Test fun toggleBoolean_pendingRemoval_undoes() = runTest {
@@ -151,13 +168,56 @@ class TickRepositoryTest {
         assertTrue(row.dirty)
     }
 
-    @Test fun adjustCounter_decrementToZero_localOnly_drops() = runTest {
+    @Test fun adjustCounter_decrementToZero_pushedButNotYetPulled_marksDeleted() = runTest {
         val trackId = seedTrack(type = "counter")
-        repo.adjustCounter(trackId, date, +1) // local-only
+        db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = trackId, date = date.toString(), value = 1))
 
         repo.adjustCounter(trackId, date, -1)
 
-        assertNull(db.tickDao().find(trackId, date.toString()))
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(0, row.value)
+        assertTrue(row.deleted)
+        assertTrue(row.dirty)
+    }
+
+    @Test fun adjustCounter_recordsThePendingChange() = runTest {
+        val trackId = seedTrack(type = "counter")
+        db.tickDao().upsert(TickEntity(serverId = 7, trackLocalId = trackId, date = date.toString(), value = 2))
+
+        repo.adjustCounter(trackId, date, +1)
+        repo.adjustCounter(trackId, date, +1)
+        repo.adjustCounter(trackId, date, -1)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(3, row.value)
+        assertEquals(1, row.pendingDelta)
+        assertTrue(row.dirty)
+    }
+
+    @Test fun adjustCounter_tapsThatCancelOut_leaveTheRowClean_andScheduleOnce() = runTest {
+        val trackId = seedTrack(type = "counter")
+        db.tickDao().upsert(TickEntity(serverId = 7, trackLocalId = trackId, date = date.toString(), value = 2))
+
+        repo.adjustCounter(trackId, date, +1)
+        repo.adjustCounter(trackId, date, -1)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(2, row.value)
+        assertNull(row.pendingDelta)
+        assertEquals(false, row.dirty)
+        assertEquals(2, scheduler.pushNowCalls)
+    }
+
+    @Test fun adjustCounter_rowQueuedBeforeTheUpdate_staysAbsolute() = runTest {
+        val trackId = seedTrack(type = "counter")
+        db.tickDao().upsert(TickEntity(serverId = 7, trackLocalId = trackId, date = date.toString(), value = 4, dirty = true))
+
+        repo.adjustCounter(trackId, date, +1)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(5, row.value)
+        assertNull(row.pendingDelta)
+        assertTrue(row.dirty)
     }
 
     @Test fun observeRange_emitsCurrentAndUpdates() = runTest {

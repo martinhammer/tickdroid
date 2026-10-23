@@ -13,11 +13,18 @@ interface TickDao {
     @Query("SELECT * FROM ticks WHERE deleted = 0 AND date BETWEEN :from AND :to")
     fun observeRange(from: String, to: String): Flow<List<TickEntity>>
 
-    @Query("SELECT * FROM ticks WHERE deleted = 0 AND date BETWEEN :from AND :to")
+    /**
+     * Rows marked deleted too: the pull must see a queued untick, or it would `upsert` the
+     * server's tick over it (REPLACE on the unique `(trackLocalId, date)` index) and lose it.
+     */
+    @Query("SELECT * FROM ticks WHERE date BETWEEN :from AND :to")
     suspend fun getRange(from: String, to: String): List<TickEntity>
 
     @Query("SELECT * FROM ticks WHERE trackLocalId = :trackLocalId AND date = :date LIMIT 1")
     suspend fun find(trackLocalId: Long, date: String): TickEntity?
+
+    @Query("SELECT * FROM ticks WHERE localId = :localId")
+    suspend fun findById(localId: Long): TickEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(tick: TickEntity): Long

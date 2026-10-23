@@ -133,6 +133,43 @@ class SyncManagerPullTest {
         assertTrue(tick!!.dirty)
     }
 
+    @Test fun queuedUntick_survivesAPullThatStillHasTheTick() = runTest {
+        val trackId = rig.db.trackDao().insert(
+            TrackEntity(serverId = 10L, name = "Meditate", type = "boolean", sortOrder = 0, private = false),
+        )
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = 100L, trackLocalId = trackId, date = "2026-04-29", value = 0, dirty = true, deleted = true),
+        )
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/ticks_ok.json") // the server still has the tick
+
+        rig.syncManager.pull(from, to)
+
+        val tick = rig.db.tickDao().find(trackId, "2026-04-29")!!
+        assertTrue("the untick is still queued", tick.deleted)
+        assertTrue(tick.dirty)
+        assertEquals(0, tick.value)
+    }
+
+    @Test fun cleanRowMarkedDeleted_isReplacedByTheServersTick() = runTest {
+        // None should exist now, but an older version could leave one.
+        val trackId = rig.db.trackDao().insert(
+            TrackEntity(serverId = 10L, name = "Meditate", type = "boolean", sortOrder = 0, private = false),
+        )
+        rig.db.tickDao().upsert(
+            TickEntity(serverId = 100L, trackLocalId = trackId, date = "2026-04-29", value = 0, deleted = true),
+        )
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/ticks_ok.json")
+
+        rig.syncManager.pull(from, to)
+
+        val tick = rig.db.tickDao().find(trackId, "2026-04-29")!!
+        assertEquals(1, tick.value)
+        assertFalse(tick.deleted)
+        assertFalse(tick.dirty)
+    }
+
     @Test fun pull_sweepsOrphanTrackPrefs_whenTrackDeletedServerSide() = runTest {
         // Seed orphan prefs for a serverId no longer in the server's response.
         rig.db.trackPrefsDao().upsert(TrackPrefsEntity(serverId = 999L, colorKey = "blue", emoji = "✨"))

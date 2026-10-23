@@ -220,9 +220,9 @@ class SyncManager @Inject constructor(
     /**
      * Applies a track list, then drops unsent ticks of archived tracks. Inside a transaction.
      *
-     * The drop is not optional. The server answers a tick on an archived track with a quiet 200
-     * and the unchanged state, so `PushWorker.pushBoolean` sees a mismatch and leaves a yes/no
-     * tick dirty. Archived tracks stay in Room, so without this the row would stay dirty for
+     * The drop is not optional. An older server (or one sent no `Prefer: handling=strict`)
+     * answers a tick on an archived track with a quiet 200 and the unchanged state, so the toggle
+     * fallback in `PushWorker.pushBoolean` sees a mismatch and leaves a yes/no tick dirty. Archived tracks stay in Room, so without this the row would stay dirty for
      * good: re-sent on every push, never overwritten by a pull (dirty rows are skipped), the
      * "unsaved changes" chip and the widgets' offline symbol stuck on while offline, and the old
      * tick finally applied if the track is ever restored.
@@ -283,6 +283,7 @@ class SyncManager @Inject constructor(
 
     private suspend fun reconcileTicks(remote: List<TickDto>, from: String, to: String) {
         val tracksByServerId = trackDao.getAll().associateBy { it.serverId }
+        // Includes rows marked deleted, so a queued untick is seen and skipped as dirty.
         val localInRange = tickDao.getRange(from, to).associateBy { it.trackLocalId to it.date }
         val seenKeys = mutableSetOf<Pair<Long, String>>()
 
@@ -305,6 +306,7 @@ class SyncManager @Inject constructor(
                     existing.copy(
                         serverId = dto.id,
                         value = dto.value,
+                        deleted = false,
                     )
                 )
             }

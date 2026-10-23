@@ -4,12 +4,14 @@ import com.martinhammer.tickdroid.data.remote.dto.CapabilitiesData
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TickToggleResponse
 import com.martinhammer.tickdroid.data.remote.dto.TickValueResponse
+import com.martinhammer.tickdroid.data.remote.dto.TickYesNoResponse
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
 import retrofit2.Response
 import retrofit2.http.DELETE
 import retrofit2.http.Field
 import retrofit2.http.FormUrlEncoded
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.PUT
 import retrofit2.http.Path
@@ -60,6 +62,33 @@ interface TickbuddyApi {
         @Field("trackId") trackId: Long,
         @Field("date") date: String,
         @Field("value") value: Int,
+    ): OcsEnvelope<TickValueResponse>
+
+    /**
+     * [setTick] for a yes/no day (capability `booleanSet`): [value] 1 ticks it, 0 unticks it. Its
+     * own method only because the answer is read leniently ([TickYesNoResponse]).
+     */
+    @FormUrlEncoded
+    @POST("/ocs/v2.php/apps/tickbuddy/api/ticks/set")
+    suspend fun setYesNo(
+        @Field("trackId") trackId: Long,
+        @Field("date") date: String,
+        @Field("value") value: Int,
+    ): OcsEnvelope<TickYesNoResponse>
+
+    /**
+     * Adds [delta] (never 0) to a counter day (capability `counterIncrement`); answers the new
+     * value, which includes other clients' changes. Not safe to repeat on its own, so always with
+     * [idempotencyKey] (capability `idempotencyKey`): a quoted UUID, a Structured Fields string,
+     * resent unchanged with the same [delta] until an answer arrives.
+     */
+    @FormUrlEncoded
+    @POST("/ocs/v2.php/apps/tickbuddy/api/ticks/increment")
+    suspend fun incrementTick(
+        @Field("trackId") trackId: Long,
+        @Field("date") date: String,
+        @Field("delta") delta: Int,
+        @Header("Idempotency-Key") idempotencyKey: String,
     ): OcsEnvelope<TickValueResponse>
 
     // Track changes. Form-encoded exactly as Tickbuddy's own settings page sends them
