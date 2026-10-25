@@ -1,1 +1,3 @@
+Widgets now have a background setting with three values: Solid / Translucent / Transparent.
+Forward compatibility backend changes and fixes in preparation for future developments.
 Counters no longer lose changes made on another device or by a script, or when tapping quickly.

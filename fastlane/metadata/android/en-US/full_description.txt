@@ -2,4 +2,4 @@ Tickdroid is the Android companion app for Tickbuddy, the daily habit and event 
 
 Tickdroid lets you keep track of what happens each day, such as your meditation, exercise, or how many cups of coffee you had. Your scripts and AI agents can also log to Tickbuddy automatically, for example to record nightly backups, and their entries show up in Tickdroid too. Tickbuddy and Tickdroid are flexible: use them for habits, chores, keeping an eye on automations, or anything else that matters to you. Over time, analyse patterns and statistics with Tickbuddy’s built-in analytics.
 
-The source code can be found on GitHub at https://github.com/martinhammer/tickdroid/. Report bugs, enhancement proposals and feature requests there.
+Learn more about Tickdroid and Tickbuddy at https://tickbuddy.app. Source code is available on GitHub at https://github.com/martinhammer/tickdroid/. Report bugs, enhancement proposals and feature requests there.
