@@ -45,6 +45,10 @@ interface TickDao {
     @Query("DELETE FROM ticks WHERE dirty = 1 AND trackLocalId IN (SELECT localId FROM tracks WHERE archivedAt IS NOT NULL)")
     suspend fun deleteDirtyOfArchivedTracks(): Int
 
-    @Query("SELECT EXISTS(SELECT 1 FROM ticks WHERE dirty = 1)")
-    fun observeHasDirty(): Flow<Boolean>
+    /**
+     * Anything waiting to go up: a dirty tick or a dirty note. The journal's chip, Today's and the
+     * widgets' offline symbol all read this, so they agree. Room watches both tables.
+     */
+    @Query("SELECT EXISTS(SELECT 1 FROM ticks WHERE dirty = 1) OR EXISTS(SELECT 1 FROM notes WHERE dirty = 1)")
+    fun observeHasUnsent(): Flow<Boolean>
 }

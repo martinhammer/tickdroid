@@ -6,7 +6,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.CredentialStore
 import com.martinhammer.tickdroid.data.auth.Credentials
+import com.martinhammer.tickdroid.data.local.NoteEntity
 import com.martinhammer.tickdroid.data.local.TickEntity
+import com.martinhammer.tickdroid.data.local.TrackRunEntity
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.prefs.GridDensity
@@ -59,6 +61,9 @@ class SyncCoordinatorTest {
             trackPrefsDao = db.trackPrefsDao(),
             authRepository = auth,
             serverFeatures = serverFeatures,
+            noteDao = db.noteDao(),
+            trackRunDao = db.trackRunDao(),
+            clock = mockk(relaxed = true),
         )
         coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs, widgetStore, serverFeatures)
         coordinator.start()
@@ -125,8 +130,15 @@ class SyncCoordinatorTest {
         prefs.setGridDensity(GridDensity.HIGH)
         assertEquals(GridDensity.HIGH, prefs.gridDensity.value)
         widgetStore.put(42, WidgetConfig.Button(trackServerId = 1L))
-        serverFeatures.update(TickbuddyCapability(features = mapOf("archivedTracks" to true)))
+        db.noteDao().upsert(NoteEntity(trackLocalId = trackId, date = "2026-04-30", text = "n", dirty = true, baseText = ""))
+        db.trackRunDao().replaceAll(listOf(TrackRunEntity(trackId, "2026-04-30", true, 2, false, 1)))
+        serverFeatures.update(
+            TickbuddyCapability(
+                features = mapOf("archivedTracks" to true, "notes" to true, "notesAppend" to true, "stats" to true),
+            ),
+        )
         assertTrue(serverFeatures.archivedTracks.value)
+        assertTrue(serverFeatures.notes.value)
 
         auth.signOut()
 
@@ -145,6 +157,9 @@ class SyncCoordinatorTest {
         )
         assertEquals(GridDensity.Default, prefs.gridDensity.value)
         assertFalse("server features should be cleared on sign-out", serverFeatures.archivedTracks.value)
+        assertTrue("notes wiped", db.noteDao().getDirty().isEmpty() && db.noteDao().getRange("2026-01-01", "2026-12-31").isEmpty())
+        assertTrue("runs wiped", db.trackRunDao().getAll().isEmpty())
+        assertFalse(serverFeatures.notes.value || serverFeatures.notesAppend.value || serverFeatures.stats.value)
     }
 
     @Test fun signOut_thenSignInAgain_leavesDatabaseUsable() = runTest {

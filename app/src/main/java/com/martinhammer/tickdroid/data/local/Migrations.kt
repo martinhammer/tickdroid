@@ -26,3 +26,28 @@ internal val MIGRATION_3_4 = object : Migration(3, 4) {
         db.execSQL("ALTER TABLE ticks ADD COLUMN sentKey TEXT")
     }
 }
+
+/**
+ * v4 → v5: notes and streaks. Two new tables, both children of `tracks` with `ON DELETE CASCADE`;
+ * nothing existing changes. The SQL is copied from `app/schemas/…/5.json` (`createSql`), so it
+ * matches what Room checks.
+ */
+internal val MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `notes` (`localId` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                "`trackLocalId` INTEGER NOT NULL, `date` TEXT NOT NULL, `text` TEXT NOT NULL, " +
+                "`dirty` INTEGER NOT NULL, `baseText` TEXT, FOREIGN KEY(`trackLocalId`) REFERENCES " +
+                "`tracks`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+        db.execSQL(
+            "CREATE UNIQUE INDEX IF NOT EXISTS `index_notes_trackLocalId_date` ON `notes` (`trackLocalId`, `date`)",
+        )
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `track_runs` (`trackLocalId` INTEGER NOT NULL, `asOf` TEXT NOT NULL, " +
+                "`isStreak` INTEGER, `length` INTEGER, `upToYesterday` INTEGER NOT NULL, " +
+                "`maxValue` INTEGER NOT NULL, PRIMARY KEY(`trackLocalId`), FOREIGN KEY(`trackLocalId`) " +
+                "REFERENCES `tracks`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        )
+    }
+}

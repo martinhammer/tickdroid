@@ -87,7 +87,7 @@ class WidgetRefresher @Inject constructor(
                 syncManager.status,
                 syncManager.pushStatus,
                 networkMonitor.isOnline,
-                tickRepository.observeHasDirty(),
+                tickRepository.observeHasUnsent(),
             ) { pull, push, online, dirty ->
                 SyncBadge(
                     syncing = pull is SyncStatus.Syncing || push is PushStatus.Pushing,

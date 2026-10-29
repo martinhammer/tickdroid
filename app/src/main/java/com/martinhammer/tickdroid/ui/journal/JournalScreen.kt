@@ -3,6 +3,7 @@ package com.martinhammer.tickdroid.ui.journal
 import androidx.compose.animation.core.animate
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -94,6 +95,8 @@ import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
 import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
+import com.martinhammer.tickdroid.ui.MainNavigationBar
+import com.martinhammer.tickdroid.ui.MainTab
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -117,6 +120,8 @@ private fun computeCellSize(density: GridDensity): Dp {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun JournalScreen(
+    onOpenToday: (today: LocalDate) -> Unit = {},
+    onOpenDay: (LocalDate) -> Unit = {},
     onOpenAccount: () -> Unit = {},
     onOpenAppSettings: () -> Unit = {},
     onOpenTracksSettings: () -> Unit = {},
@@ -135,7 +140,7 @@ fun JournalScreen(
     Scaffold(
         modifier = if (compactHeight) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            val title: @Composable () -> Unit = { Text("Tickdroid") }
+            val title: @Composable () -> Unit = { Text("Journal") }
             val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
                 SyncIssueChip(state.syncIssue)
                 SyncIndicator(state.syncStatus)
@@ -162,6 +167,11 @@ fun JournalScreen(
                 )
             }
         },
+        bottomBar = { MainNavigationBar(
+                selected = MainTab.Journal,
+                onToday = { onOpenToday(state.window.today) },
+                onJournal = {},
+            ) },
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = state.syncStatus is SyncStatus.Syncing,
@@ -180,6 +190,7 @@ fun JournalScreen(
                     onLoadOlder = { viewModel.loadOlder() },
                     onToggleBoolean = viewModel::toggleBoolean,
                     onAdjustCounter = viewModel::adjustCounter,
+                    onOpenDay = onOpenDay,
                     // A programmatic scroll doesn't go through nested scroll, so the collapsed
                     // LargeTopAppBar wouldn't notice the list is back at the top: expand it
                     // explicitly. (Tracks down's chip pages sideways, so it has nothing to undo.)
@@ -196,19 +207,20 @@ fun JournalScreen(
                     onLoadOlder = { viewModel.loadOlder() },
                     onToggleBoolean = viewModel::toggleBoolean,
                     onAdjustCounter = viewModel::adjustCounter,
+                    onOpenDay = onOpenDay,
                 )
             }
         }
     }
 
     if (showHelp) {
-        HelpSheet(onDismiss = { showHelp = false })
+        HelpSheet(notes = state.notesSupported, onDismiss = { showHelp = false })
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HelpSheet(onDismiss: () -> Unit) {
+private fun HelpSheet(notes: Boolean, onDismiss: () -> Unit) {
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -231,6 +243,13 @@ private fun HelpSheet(onDismiss: () -> Unit) {
                 "Tap a cell to toggle a yes/no value or increment a counter; long-press to decrement a counter value.",
                 style = MaterialTheme.typography.bodyMedium,
             )
+            if (notes) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "Tap a day to open it on Today, where you can read and write its notes.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
             Spacer(Modifier.height(12.dp))
             Text(
                 "Editable days, show/hide private tracks, and UI options are configured in App settings.",
@@ -245,12 +264,16 @@ private fun HelpSheet(onDismiss: () -> Unit) {
     }
 }
 
+@Composable
+internal fun JournalEmptyState(state: JournalUiState) =
+    JournalEmptyState(loaded = state.loaded, hasHiddenPrivateTracks = state.hasHiddenPrivateTracks)
+
 /**
- * Loading / no-tracks / all-private placeholder shared by both journal layouts. Scrollable so
- * pull-to-refresh still works on an otherwise empty screen.
+ * Loading / no-tracks / all-private placeholder shared by both journal layouts and Today.
+ * Scrollable so pull-to-refresh still works on an otherwise empty screen.
  */
 @Composable
-internal fun JournalEmptyState(state: JournalUiState) {
+internal fun JournalEmptyState(loaded: Boolean, hasHiddenPrivateTracks: Boolean) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -262,10 +285,10 @@ internal fun JournalEmptyState(state: JournalUiState) {
             .verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.Center,
     ) {
-        if (!state.loaded) {
+        if (!loaded) {
             CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(28.dp))
         } else {
-            val message = if (state.hasHiddenPrivateTracks) {
+            val message = if (hasHiddenPrivateTracks) {
                 "All tracks are private. Enable \"Show private tracks\" in settings to show them."
             } else {
                 "No tracks yet. Add one in Tracks settings."
@@ -285,6 +308,7 @@ private fun JournalGrid(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
     onJumpToToday: () -> Unit,
 ) {
     val tracks = state.tracks
@@ -336,11 +360,13 @@ private fun JournalGrid(
                         tracks = tracks,
                         prefsMap = prefsMap,
                         ticks = state.ticks,
+                        noteKeys = state.noteKeys,
                         gridScroll = gridScroll,
                         cellSize = cellSize,
                         editableDays = state.editableDays,
                         onToggleBoolean = onToggleBoolean,
                         onAdjustCounter = onAdjustCounter,
+                        onOpenDay = onOpenDay,
                     )
                 }
                 item {
@@ -423,11 +449,13 @@ private fun DayRow(
     tracks: List<Track>,
     prefsMap: Map<Long, TrackPrefs>,
     ticks: Map<TickKey, Tick>,
+    noteKeys: Set<TickKey>,
     gridScroll: androidx.compose.foundation.ScrollState,
     cellSize: Dp,
     editableDays: EditableDays,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
 ) {
     val editable = editableDays.isEditable(day, today)
     val isWeekend = rememberIsWeekend(day)
@@ -446,7 +474,7 @@ private fun DayRow(
             .padding(end = RightPad),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DayLabel(day, today)
+        DayLabel(day, today, onClick = { onOpenDay(day) })
         Row(
             modifier = Modifier.horizontalScroll(gridScroll),
             horizontalArrangement = Arrangement.spacedBy(CellGap),
@@ -462,6 +490,7 @@ private fun DayRow(
                     editable = editable,
                     onToggleBoolean = { onToggleBoolean(track.localId, day) },
                     onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
+                    hasNote = TickKey(track.localId, day) in noteKeys,
                 )
             }
         }
@@ -479,8 +508,11 @@ internal fun rememberIsWeekend(day: LocalDate): Boolean {
     }
 }
 
+/** TalkBack's name for a day label's tap, in both layouts: it opens that day on Today. */
+internal const val OpenInTodayLabel = "Open in Today"
+
 @Composable
-private fun DayLabel(day: LocalDate, today: LocalDate) {
+private fun DayLabel(day: LocalDate, today: LocalDate, onClick: () -> Unit) {
     val locale = LocalConfiguration.current.locales[0]
     val dow = day.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, locale)
         .uppercase(locale)
@@ -491,7 +523,12 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
         today.minusDays(1) -> "yesterday"
         else -> dateFormat.format(Date.from(day.atStartOfDay(ZoneId.systemDefault()).toInstant()))
     }
-    Column(modifier = Modifier.width(DayLabelWidth).padding(start = 12.dp)) {
+    Column(
+        modifier = Modifier
+            .width(DayLabelWidth)
+            .clickable(onClickLabel = OpenInTodayLabel, onClick = onClick)
+            .padding(start = 12.dp),
+    ) {
         Text(
             text = dow,
             style = MaterialTheme.typography.titleMedium,
@@ -509,139 +546,8 @@ private fun DayLabel(day: LocalDate, today: LocalDate) {
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun TickCell(
-    track: Track,
-    tick: Tick?,
-    prefs: TrackPrefs?,
-    cellSize: Dp,
-    editable: Boolean,
-    onToggleBoolean: () -> Unit,
-    onAdjustCounter: (delta: Int) -> Unit,
-) {
-    val ticked = tick != null && tick.value > 0
-    val customColor = TrackColor.fromKey(prefs?.colorKey)
-    val container = when {
-        ticked && customColor != null -> customColor.container
-        ticked -> MaterialTheme.colorScheme.primaryContainer
-        else -> MaterialTheme.colorScheme.surfaceContainerHighest
-    }
-    val onContainer = when {
-        ticked && customColor != null -> customColor.onContainer
-        ticked -> MaterialTheme.colorScheme.onPrimaryContainer
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val haptics = LocalHapticFeedback.current
-    val context = LocalContext.current
-    val unknownType = track.type is TrackType.Unknown
-    val tapModifier = if (unknownType) {
-        // A type from a newer Tickbuddy: read-only on every day, editable or locked, so the
-        // locked-day toast never promises an edit that can't happen.
-        Modifier
-            .combinedClickable(
-                onClick = {
-                    android.widget.Toast.makeText(
-                        context,
-                        updateRequiredToast(track.name),
-                        android.widget.Toast.LENGTH_SHORT,
-                    ).show()
-                },
-            )
-            .semantics { contentDescription = updateRequiredDescription(track.name) }
-    } else if (editable) {
-        when (track.type) {
-            TrackType.YesNo -> Modifier.combinedClickable(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onToggleBoolean()
-                },
-            )
-            TrackType.Counter -> Modifier.combinedClickable(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    onAdjustCounter(1)
-                },
-                onLongClick = {
-                    if (ticked) {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onAdjustCounter(-1)
-                    }
-                },
-            )
-            is TrackType.Unknown -> Modifier // handled above
-        }
-    } else {
-        Modifier.combinedClickable(
-            onClick = {
-                android.widget.Toast.makeText(
-                    context,
-                    "This day is locked. Select editable days in App settings.",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            },
-        )
-    }
-
-    Box(
-        modifier = Modifier
-            .size(cellSize)
-            .clip(RoundedCornerShape(12.dp))
-            .background(container)
-            .then(tapModifier),
-        contentAlignment = Alignment.Center,
-    ) {
-        when {
-            // Its value means something only a newer Tickdroid knows: just "there is one".
-            unknownType && ticked -> {
-                Text(
-                    text = "?",
-                    color = onContainer,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            unknownType -> Unit // no "tap" hint: taps don't write
-            track.type == TrackType.Counter && ticked -> {
-                Text(
-                    text = tick!!.value.toString(),
-                    color = onContainer,
-                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-            ticked -> {
-                Icon(
-                    imageVector = Icons.Filled.Check,
-                    contentDescription = null,
-                    tint = onContainer,
-                    modifier = Modifier.size(cellSize * 0.6f),
-                )
-            }
-            editable && track.type == TrackType.Counter -> {
-                // Faint affordance hinting "tap to add" on editable empty counter cells.
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    modifier = Modifier.size(cellSize * 0.5f),
-                )
-            }
-            editable && track.type == TrackType.YesNo -> {
-                // Faint interpunct hinting "tap to tick" on editable empty boolean cells.
-                Text(
-                    text = "·",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
-                    fontSize = (cellSize.value * 0.5f).sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun SyncIndicator(status: SyncStatus) {
+internal fun SyncIndicator(status: SyncStatus) {
     if (status is SyncStatus.Syncing) {
         CircularProgressIndicator(
             strokeWidth = 2.dp,
@@ -651,7 +557,7 @@ private fun SyncIndicator(status: SyncStatus) {
 }
 
 @Composable
-private fun SyncIssueChip(issue: SyncIssue) {
+internal fun SyncIssueChip(issue: SyncIssue) {
     val label = issue.toLabel() ?: return
     AssistChip(
         onClick = {},
@@ -675,7 +581,7 @@ private fun SyncIssueChip(issue: SyncIssue) {
 }
 
 @Composable
-private fun OverflowMenu(
+internal fun OverflowMenu(
     onOpenAccount: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onOpenTracksSettings: () -> Unit,

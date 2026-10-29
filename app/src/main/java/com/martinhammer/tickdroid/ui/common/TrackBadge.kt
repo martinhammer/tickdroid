@@ -12,18 +12,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 
 /**
- * 40dp circle in the track's colour, showing its emoji or two-letter abbreviation. [muted] (an
+ * A circle ([size], 40dp by default; the note card uses 32dp) in the track's colour, showing its emoji or two-letter abbreviation. [muted] (an
  * archived track) draws it neutral instead: `surfaceContainerHighest`, letters in
  * `onSurfaceVariant`, an emoji at 60% alpha, and the track's own colour isn't shown.
  */
 @Composable
-internal fun TrackBadge(track: Track, prefs: TrackPrefs, muted: Boolean = false) {
+internal fun TrackBadge(track: Track, prefs: TrackPrefs, muted: Boolean = false, size: Dp = 40.dp) {
     val customColor = TrackColor.fromKey(prefs.colorKey).takeUnless { muted }
     val container = when {
         muted -> MaterialTheme.colorScheme.surfaceContainerHighest
@@ -35,7 +36,7 @@ internal fun TrackBadge(track: Track, prefs: TrackPrefs, muted: Boolean = false)
     }
     Box(
         modifier = Modifier
-            .size(40.dp)
+            .size(size)
             .clip(CircleShape)
             .background(container),
         contentAlignment = Alignment.Center,
@@ -43,7 +44,7 @@ internal fun TrackBadge(track: Track, prefs: TrackPrefs, muted: Boolean = false)
         if (prefs.emoji != null) {
             Text(
                 text = prefs.emoji,
-                style = MaterialTheme.typography.titleLarge,
+                style = if (size < 40.dp) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                 modifier = if (muted) Modifier.alpha(0.6f) else Modifier,
             )
         } else {

@@ -5,6 +5,7 @@ import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
+import com.martinhammer.tickdroid.data.local.NoteEntity
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.repository.TickRepository
@@ -15,6 +16,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.builtins.serializer
+import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
@@ -28,6 +31,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.net.URLDecoder
 import java.time.LocalDate
 import java.util.UUID
 
@@ -80,6 +84,7 @@ class PushWorkerTest {
                     api = rig.api,
                     database = rig.db,
                     tickDao = rig.db.tickDao(),
+                    noteDao = rig.db.noteDao(),
                     trackDao = rig.db.trackDao(),
                     authRepository = rig.authRepository,
                     syncManager = rig.syncManager,
@@ -903,5 +908,311 @@ class PushWorkerTest {
         assertEquals("handling=strict", increment.getHeader("Prefer"))
         assertTrue(rig.db.tickDao().getDirty().isEmpty())
         assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
+    }
+    // Notes (capability `notes`): read the server's note, then set / delete / append / nothing.
+
+    private fun notesServer(append: Boolean = true) {
+        rig.notes = true
+        rig.notesAppend = append
+        rig.seedServerFeatures()
+    }
+
+    private suspend fun seedNote(trackLocalId: Long, text: String, base: String?): Long =
+        rig.db.noteDao().upsert(
+            NoteEntity(trackLocalId = trackLocalId, date = today.toString(), text = text, dirty = true, baseText = base),
+        )
+
+    private fun quoted(text: String) = Json.encodeToString(String.serializer(), text)
+
+    private fun serverNote(serverId: Long, text: String) =
+        """{"trackId":$serverId,"date":"$today","text":${quoted(text)}}"""
+
+    private fun notesList(vararg notes: String) =
+        """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[${notes.joinToString(",")}]}}"""
+
+    private fun noteOk(text: String) = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"text":${quoted(text)}}}}"""
+
+    /** The pull after a push, with notes: tracks, ticks, then notes. */
+    private fun enqueueNotesPull(serverId: Long = 10L, vararg notes: String) {
+        enqueuePull(serverId, "boolean")
+        rig.enqueueJson(notesList(*notes))
+    }
+
+    private fun RecordedRequest.text(): String = URLDecoder.decode(form().getValue("text"), "UTF-8")
+
+    private suspend fun note(trackLocalId: Long) = rig.db.noteDao().find(trackLocalId, today.toString())
+
+    @Test fun note_serverUnchanged_setsThePhonesText() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "5k along the river", base = "")
+        rig.enqueueJson(notesList())
+        rig.enqueueJson(noteOk("5k along the river"))
+        enqueueNotesPull(10L, serverNote(10L, "5k along the river"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val read = rig.takeApiRequest()
+        assertTrue(read.path!!, read.path!!.contains("/notes?from=$today&to=$today&includeAllTypes=true"))
+        val set = rig.takeApiRequest()
+        assertTrue(set.path!!.endsWith("/notes/set"))
+        val form = set.form() // the body can only be read once
+        assertEquals("10", form["trackId"])
+        assertEquals("5k along the river", URLDecoder.decode(form.getValue("text"), "UTF-8"))
+        val row = note(track)!!
+        assertEquals("5k along the river", row.text)
+        assertFalse(row.dirty)
+        assertNull(row.baseText)
+    }
+
+    @Test fun note_deletedOnPhone_serverUnchanged_sendsDelete() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "", base = "old")
+        rig.enqueueJson(notesList(serverNote(10L, "old")))
+        rig.enqueueStatus(204)
+        enqueueNotesPull()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        val delete = rig.takeApiRequest()
+        assertEquals("DELETE", delete.method)
+        assertTrue(delete.path!!, delete.path!!.contains("/notes?trackId=10&date=$today"))
+        assertNull(note(track))
+    }
+
+    @Test fun note_changedElsewhere_appendsOnlyTheNewLines() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "a\nmine", base = "a")
+        rig.enqueueJson(notesList(serverNote(10L, "a\ntheirs")))
+        rig.enqueueJson(noteOk("a\ntheirs\nmine"))
+        enqueueNotesPull(10L, serverNote(10L, "a\ntheirs\nmine"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        val append = rig.takeApiRequest()
+        assertTrue(append.path!!.endsWith("/notes/append"))
+        assertEquals("mine", append.text())
+        val row = note(track)!!
+        assertEquals("a\ntheirs\nmine", row.text)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun note_changedElsewhere_phoneOnlyRemovedALine_writesNothing() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "a", base = "a\nb")
+        rig.enqueueJson(notesList(serverNote(10L, "a\nb\nc")))
+        enqueueNotesPull(10L, serverNote(10L, "a\nb\nc"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest() // the read
+        assertTrue("straight to the pull", rig.takeApiRequest().path!!.contains("/tracks"))
+        val row = note(track)!!
+        assertEquals("a\nb\nc", row.text)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun note_mergeOver500_writesNothing_serversNoteBack_notice() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        val theirs = "t".repeat(498)
+        seedNote(track, "mine", base = "")
+        rig.enqueueJson(notesList(serverNote(10L, theirs)))
+        enqueueNotesPull(10L, serverNote(10L, theirs))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        assertTrue("no write", rig.takeApiRequest().path!!.contains("/tracks"))
+        val row = note(track)!!
+        assertEquals(theirs, row.text)
+        assertFalse(row.dirty)
+        assertEquals(
+            listOf("The note for T10 would be longer than 500 characters, so the change wasn't saved."),
+            notices.shown,
+        )
+    }
+
+    @Test fun note_changedElsewhere_withoutNotesAppend_setsThePhonesVersion() = runTest {
+        notesServer(append = false)
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "mine", base = "a")
+        rig.enqueueJson(notesList(serverNote(10L, "theirs")))
+        rig.enqueueJson(noteOk("mine"))
+        enqueueNotesPull(10L, serverNote(10L, "mine"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        val set = rig.takeApiRequest()
+        assertTrue(set.path!!.endsWith("/notes/set"))
+        assertEquals("mine", set.text())
+    }
+
+    @Test fun note_serverAlreadyHasIt_writesNothing() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "same", base = "")
+        rig.enqueueJson(notesList(serverNote(10L, "same")))
+        enqueueNotesPull(10L, serverNote(10L, "same"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        rig.takeApiRequest()
+        assertTrue(rig.takeApiRequest().path!!.contains("/tracks"))
+        assertFalse(note(track)!!.dirty)
+    }
+
+    @Test fun note_editedDuringSet_staysDirty_baseIsTheAnswer_nextRunSetsAgain() = runBlocking {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        val id = seedNote(track, "first", base = "")
+        rig.enqueueJson(notesList())
+
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), buildWorker().doWork()) }
+        rig.takeApiRequest() // the read
+        assertEquals("first", rig.takeApiRequest().text()) // in flight: its answer isn't queued yet
+        rig.db.noteDao().update(rig.db.noteDao().findById(id)!!.copy(text = "second"))
+        rig.enqueueJson(noteOk("first"))
+        enqueueNotesPull(10L, serverNote(10L, "first"))
+        run.join()
+
+        val row = note(track)!!
+        assertEquals("second", row.text)
+        assertTrue(row.dirty)
+        assertEquals("first", row.baseText)
+
+        rig.enqueueJson(notesList(serverNote(10L, "first")))
+        rig.enqueueJson(noteOk("second"))
+        enqueueNotesPull(10L, serverNote(10L, "second"))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        repeat(3) { rig.takeApiRequest() } // the first run's pull
+        rig.takeApiRequest() // the read
+        val again = rig.takeApiRequest()
+        assertTrue(again.path!!.endsWith("/notes/set"))
+        assertEquals("second", again.text())
+        assertFalse(note(track)!!.dirty)
+    }
+
+    @Test fun note_editedDuringAppend_baseKept_nextRunAppendsAgain() = runBlocking {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        val id = seedNote(track, "a\nmine", base = "a")
+        rig.enqueueJson(notesList(serverNote(10L, "a\ntheirs")))
+
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), buildWorker().doWork()) }
+        rig.takeApiRequest()
+        assertEquals("mine", rig.takeApiRequest().text())
+        rig.db.noteDao().update(rig.db.noteDao().findById(id)!!.copy(text = "a\nmine\nmore"))
+        rig.enqueueJson(noteOk("a\ntheirs\nmine"))
+        enqueueNotesPull(10L, serverNote(10L, "a\ntheirs\nmine"))
+        run.join()
+
+        val row = note(track)!!
+        assertEquals("a\nmine\nmore", row.text)
+        assertTrue(row.dirty)
+        assertEquals("a", row.baseText)
+
+        rig.enqueueJson(notesList(serverNote(10L, "a\ntheirs\nmine")))
+        rig.enqueueJson(noteOk("a\ntheirs\nmine\nmore"))
+        enqueueNotesPull(10L, serverNote(10L, "a\ntheirs\nmine\nmore"))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        repeat(3) { rig.takeApiRequest() }
+        rig.takeApiRequest()
+        val append = rig.takeApiRequest()
+        assertTrue(append.path!!.endsWith("/notes/append"))
+        assertEquals("more", append.text())
+        assertEquals("a\ntheirs\nmine\nmore", note(track)!!.text)
+    }
+
+    @Test fun note_refused423_dropped_oneNoticeSharedWithATick() = runTest {
+        notesServer()
+        rig.booleanSet = true
+        rig.seedServerFeatures()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedDirty(track)
+        seedNote(track, "mine", base = "")
+        rig.enqueueJson(archivedRefusal("T10"), code = 423) // the tick's set
+        rig.enqueueJson(notesList())
+        rig.enqueueJson(archivedRefusal("T10"), code = 423) // the note's set
+        enqueueNotesPull()
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertNull(note(track))
+        assertTrue(rig.db.tickDao().getDirty().isEmpty())
+        assertEquals(listOf("T10 is archived, so the change wasn't saved."), notices.shown)
+    }
+
+    @Test fun note_404WithReason_droppedSilently_withoutReason_retried() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "mine", base = "")
+        rig.enqueueJson(notesList())
+        rig.enqueueJson(refusal(404, "trackNotFound", "Track not found"), code = 404)
+        enqueueNotesPull()
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        assertNull(note(track))
+        assertEquals(emptyList<String>(), notices.shown)
+
+        seedNote(track, "again", base = "")
+        rig.enqueueStatus(404) // Nextcloud's own: Tickbuddy disabled
+        assertEquals(ListenableWorker.Result.retry(), buildWorker().doWork())
+        assertTrue(note(track)!!.dirty)
+    }
+
+    @Test fun note_409OnAppend_retried_nextRunAppends() = runTest {
+        notesServer()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "a\nmine", base = "a")
+        rig.enqueueJson(notesList(serverNote(10L, "a\ntheirs")))
+        rig.enqueueJson(refusal(409, "noteConflict", "The note changed while appending; try again"), code = 409)
+        assertEquals(ListenableWorker.Result.retry(), buildWorker().doWork())
+        assertTrue(note(track)!!.dirty)
+
+        rig.enqueueJson(notesList(serverNote(10L, "a\ntheirs")))
+        rig.enqueueJson(noteOk("a\ntheirs\nmine"))
+        enqueueNotesPull(10L, serverNote(10L, "a\ntheirs\nmine"))
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        assertFalse(note(track)!!.dirty)
+    }
+
+    @Test fun ticksAndNotes_ticksFirst_thenNotes_thenOnePull() = runTest {
+        notesServer()
+        rig.booleanSet = true
+        rig.seedServerFeatures()
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "mine", base = "")
+        seedDirty(track)
+        rig.enqueueJson(setOk(1))
+        rig.enqueueJson(notesList())
+        rig.enqueueJson(noteOk("mine"))
+        enqueueNotesPull(10L, serverNote(10L, "mine"))
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val paths = List(6) { rig.takeApiRequest().path!!.substringBefore('?') }
+        assertEquals(
+            listOf("/ticks/set", "/notes", "/notes/set", "/tracks", "/ticks", "/notes"),
+            paths.map { it.substringAfter("/api") },
+        )
+    }
+
+    @Test fun withoutNotesFlag_noNotesRequests_dirtyNoteStays() = runTest {
+        val track = seedTrack(serverId = 10L, type = "boolean")
+        seedNote(track, "mine", base = "")
+        enqueuePull(10L, "boolean")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertTrue(rig.takeApiRequest().path!!.contains("/tracks"))
+        assertTrue(rig.takeApiRequest().path!!.contains("/ticks"))
+        assertTrue(note(track)!!.dirty)
+        assertEquals(3, rig.server.requestCount) // with the capabilities call
     }
 }

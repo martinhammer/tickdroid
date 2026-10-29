@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +17,7 @@ import com.martinhammer.tickdroid.data.prefs.ThemeMode
 import com.martinhammer.tickdroid.ui.about.AboutScreen
 import com.martinhammer.tickdroid.ui.auth.AuthScreen
 import com.martinhammer.tickdroid.ui.journal.JournalScreen
+import com.martinhammer.tickdroid.ui.today.TodayScreen
 import com.martinhammer.tickdroid.ui.settings.AccountSettingsScreen
 import com.martinhammer.tickdroid.ui.settings.AppSettingsScreen
 import com.martinhammer.tickdroid.ui.settings.TrackDetailScreen
@@ -23,9 +25,11 @@ import com.martinhammer.tickdroid.ui.settings.TracksSettingsScreen
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
 import com.martinhammer.tickdroid.ui.theme.TickdroidTheme
+import java.time.LocalDate
 
 object Routes {
     const val AUTH = "auth"
+    const val TODAY = "today"
     const val JOURNAL = "journal"
     const val SETTINGS_ACCOUNT = "settings/account"
     const val SETTINGS_APP = "settings/app"
@@ -37,6 +41,14 @@ object Routes {
 
 /** Navigation result: the server id of a track the track screen has just archived. */
 private const val JUST_ARCHIVED = "justArchivedServerId"
+
+/**
+ * Navigation results for [Routes.TODAY]: the epoch day to show (the bar's Today item, or a
+ * Journal day label), and whether a day label opened it (then Back returns to the Journal).
+ * Written into TODAY's own entry, which is always the root while signed in.
+ */
+private const val OPEN_DAY = "openDay"
+private const val OPEN_FROM_JOURNAL = "openFromJournal"
 
 @Composable
 fun TickdroidApp(rootViewModel: RootViewModel = hiltViewModel()) {
@@ -67,9 +79,11 @@ private fun TickdroidNav(authState: AuthState) {
     // driver for auth transitions; this only picks the entry point.
     //
     // Safe to freeze: AuthRepository resolves the real state in its constructor, so a returning
-    // signed-in user's first composition already reads SignedIn and starts on JOURNAL.
+    // signed-in user's first composition already reads SignedIn and starts on TODAY. Only a
+    // start from nothing gets here: coming back to the app (also after Android restored it)
+    // keeps the screen that was left, through the platform's own saved state.
     val startDestination = remember {
-        if (authState is AuthState.SignedIn) Routes.JOURNAL else Routes.AUTH
+        if (authState is AuthState.SignedIn) Routes.TODAY else Routes.AUTH
     }
 
     NavHost(
@@ -79,8 +93,31 @@ private fun TickdroidNav(authState: AuthState) {
         composable(Routes.AUTH) {
             AuthScreen(onOpenAbout = { navController.navigate(Routes.ABOUT) })
         }
+        composable(Routes.TODAY) { entry ->
+            val openDay by entry.savedStateHandle
+                .getStateFlow<Long?>(OPEN_DAY, null)
+                .collectAsStateWithLifecycle()
+            TodayScreen(
+                openDay = openDay,
+                openFromJournal = entry.savedStateHandle.get<Boolean>(OPEN_FROM_JOURNAL) ?: false,
+                onOpenDayHandled = {
+                    entry.savedStateHandle[OPEN_DAY] = null
+                    entry.savedStateHandle.remove<Boolean>(OPEN_FROM_JOURNAL)
+                },
+                onOpenJournal = { navController.openTab(Routes.JOURNAL) },
+                onOpenAccount = { navController.navigate(Routes.SETTINGS_ACCOUNT) },
+                onOpenAppSettings = { navController.navigate(Routes.SETTINGS_APP) },
+                onOpenTracksSettings = { navController.navigate(Routes.SETTINGS_TRACKS) },
+                onOpenAbout = { navController.navigate(Routes.ABOUT) },
+            )
+        }
         composable(Routes.JOURNAL) {
+            // Back goes to Today, keeping the Journal as it was for the bar's Journal item
+            // (a plain pop would discard its saved state).
+            BackHandler { navController.openTab(Routes.TODAY) }
             JournalScreen(
+                onOpenToday = { today -> navController.openToday(today, fromJournal = false) },
+                onOpenDay = { day -> navController.openToday(day, fromJournal = true) },
                 onOpenAccount = { navController.navigate(Routes.SETTINGS_ACCOUNT) },
                 onOpenAppSettings = { navController.navigate(Routes.SETTINGS_APP) },
                 onOpenTracksSettings = { navController.navigate(Routes.SETTINGS_TRACKS) },
@@ -123,18 +160,40 @@ private fun TickdroidNav(authState: AuthState) {
     }
 }
 
+/**
+ * Opens one of the bar's screens, the standard bottom-navigation pattern: everything above
+ * TODAY is popped with its state saved, and a screen opened again gets its saved state back
+ * (the Journal's layout, scroll and loaded days). Pops by route, never
+ * `graph.startDestinationId`: the start destination is frozen at the process's first auth
+ * state (AUTH after a sign-in), and popping it would be a no-op.
+ */
+private fun NavHostController.openTab(route: String) = navigate(route) {
+    popUpTo(Routes.TODAY) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+
+/** Shows [day] on Today, as a navigation result written into TODAY's own entry. */
+private fun NavHostController.openToday(day: LocalDate, fromJournal: Boolean) {
+    val handle = getBackStackEntry(Routes.TODAY).savedStateHandle
+    // The flag first: the screen reads it when the day arrives.
+    handle[OPEN_FROM_JOURNAL] = fromJournal
+    handle[OPEN_DAY] = day.toEpochDay()
+    openTab(Routes.TODAY)
+}
+
 @Composable
 private fun SyncNavToAuthState(navController: NavHostController, authState: AuthState) {
     LaunchedEffect(authState) {
         val target = when (authState) {
-            is AuthState.SignedIn -> Routes.JOURNAL
+            is AuthState.SignedIn -> Routes.TODAY
             AuthState.SignedOut -> Routes.AUTH
             AuthState.Unknown -> return@LaunchedEffect
         }
         val current = navController.currentDestination?.route ?: return@LaunchedEffect
         val onAuthRoute = current == Routes.AUTH
         val needsSwitch = (target == Routes.AUTH && !onAuthRoute) ||
-            (target == Routes.JOURNAL && onAuthRoute)
+            (target == Routes.TODAY && onAuthRoute)
         if (needsSwitch) {
             navController.navigate(target) {
                 // Pop the whole graph, not the start destination. `startDestination` is now
@@ -147,6 +206,8 @@ private fun SyncNavToAuthState(navController: NavHostController, authState: Auth
                 popUpTo(navController.graph.id) { inclusive = true }
                 launchSingleTop = true
             }
+            // The Journal state saved by the bar belongs to the account that just signed out.
+            if (target == Routes.AUTH) navController.clearBackStack(Routes.JOURNAL)
         }
     }
 }

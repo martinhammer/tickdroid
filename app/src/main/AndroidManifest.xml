@@ -24,10 +24,15 @@
                 android:name="androidx.work.WorkManagerInitializer"
                 android:value="androidx.startup"
                 tools:node="remove" /></provider>
+        <!-- singleTop: a widget tap or setup's "Open Tickdroid" starts MainActivity in this task,
+             and must bring the app back as it was left. Without it every such tap stacked a new
+             copy on the old one, which opened on the start screen, and Back showed the old copy
+             before leaving the app. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Tickdroid">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

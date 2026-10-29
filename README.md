@@ -13,6 +13,7 @@ Some of the key features which already exist:
 * Authenticate against Nextcloud server and verify that Tickbuddy is installed
 * Two-way sync with Tickbuddy back-end
 * Screen to display/edit tracks and ticks
+* Today screen with streaks, and notes for each day (shared with Tickbuddy)
 * Setting to control editable days
 * System / light / dark theme setting
 * Setting for main screen layout: days down versus tracks down
@@ -25,7 +26,7 @@ Some of the key features which already exist:
 Planned features:
 * Per-track statistics and visualisations
 * Localisation
-* Adoption of features from the Tickbuddy roadmap (goals, notes, additional track types, etc.)
+* Adoption of features from the Tickbuddy roadmap (goals, additional track types, etc.)
 * ...and more once these goals are achieved
 
 ### Motivation

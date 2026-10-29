@@ -34,11 +34,12 @@ internal val ChipClearance = 72.dp
 
 /**
  * Floating "Today" chip shown by both journal layouts once the user has scrolled away from
- * today. The caller places it at the bottom end of a box filling the pull-to-refresh area.
+ * today, and by Today away from today. The caller places it at the bottom end of a box filling
+ * the pull-to-refresh area.
  *
  * Only the horizontal insets are applied here, matching the grids: the Scaffold's inner padding
- * already includes the bottom navigation-bar inset (there is no bottomBar), so adding it again
- * would double the gap.
+ * already covers the bottom bar (`MainNavigationBar`, which takes the navigation-bar inset
+ * itself), so adding the inset again would double the gap.
  */
 @Composable
 internal fun JumpToTodayChip(visible: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {

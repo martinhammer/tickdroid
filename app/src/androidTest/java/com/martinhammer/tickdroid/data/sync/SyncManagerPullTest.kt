@@ -1,6 +1,8 @@
 package com.martinhammer.tickdroid.data.sync
 
+import com.martinhammer.tickdroid.data.local.NoteEntity
 import com.martinhammer.tickdroid.data.local.TickEntity
+import com.martinhammer.tickdroid.data.local.TrackRunEntity
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsEntity
 import com.martinhammer.tickdroid.data.repository.TrackRepository
@@ -366,5 +368,128 @@ class SyncManagerPullTest {
             listOf(TrackType.YesNo, TrackType.Counter, TrackType.Unknown("future")),
             tracks.map { it.type },
         )
+    }
+    // Notes (capability `notes`) and stats (capability `stats`).
+
+    private fun notesJson(vararg notes: String) =
+        """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[${notes.joinToString(",")}]}}"""
+
+    private fun note(trackId: Long, date: String, text: String) = """{"trackId":$trackId,"date":"$date","text":"$text"}"""
+
+    private suspend fun localIdOf(serverId: Long) = rig.db.trackDao().getAll().single { it.serverId == serverId }.localId
+
+    @Test fun withNotes_readsTheRange_notesLandClean_unknownTrackSkipped() = runTest {
+        rig.notes = true
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.enqueueJson(notesJson(note(10, "2026-04-30", "hello"), note(999, "2026-04-30", "nobody's")))
+
+        rig.syncManager.pull(from, to)
+
+        rig.takeApiRequest(); rig.takeApiRequest()
+        val read = rig.takeApiRequest()
+        assertTrue(read.path!!, read.path!!.contains("/notes?from=$from&to=$to&includeAllTypes=true"))
+        val notes = rig.db.noteDao().getRange(from.toString(), to.toString())
+        assertEquals(1, notes.size)
+        assertEquals("hello", notes[0].text)
+        assertEquals(localIdOf(10), notes[0].trackLocalId)
+        assertFalse(notes[0].dirty)
+        assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+    }
+
+    @Test fun withNotes_dirtyNoteSurvives_cleanNoteGoneFromServerIsDeleted() = runTest {
+        rig.notes = true
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.enqueueJson(notesJson())
+        rig.syncManager.pull(from, to)
+        val meditate = localIdOf(10)
+        val pages = localIdOf(11)
+        rig.db.noteDao().upsert(NoteEntity(trackLocalId = meditate, date = "2026-04-29", text = "mine", dirty = true, baseText = "old"))
+        rig.db.noteDao().upsert(NoteEntity(trackLocalId = pages, date = "2026-04-29", text = "stale"))
+
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.enqueueJson(notesJson(note(10, "2026-04-29", "theirs")))
+        rig.syncManager.pull(from, to)
+
+        val dirty = rig.db.noteDao().find(meditate, "2026-04-29")!!
+        assertEquals("mine", dirty.text)
+        assertTrue(dirty.dirty)
+        assertEquals("old", dirty.baseText)
+        assertNull(rig.db.noteDao().find(pages, "2026-04-29"))
+    }
+
+    @Test fun withoutNotes_noNotesRequest() = runTest {
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+
+        rig.syncManager.pull(from, to)
+
+        assertEquals("capabilities, tracks, ticks", 3, rig.server.requestCount)
+        assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+    }
+
+    private val statsJson = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+        {"trackId":10,"total":5,"current":{"isStreak":true,"length":3,"from":"2026-10-26","to":"2026-10-28"},
+         "upToYesterday":true,"maxValue":1,"minValue":1},
+        {"trackId":11,"total":0,"current":null,"upToYesterday":false,"maxValue":7,"minValue":0}]}}"""
+
+    @Test fun withStats_asksAsOfThePhonesToday_runsLand() = runTest {
+        rig.stats = true
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.enqueueJson(statsJson)
+
+        rig.syncManager.pull(from, to)
+
+        rig.takeApiRequest(); rig.takeApiRequest()
+        val stats = rig.takeApiRequest()
+        assertTrue(stats.path!!, stats.path!!.contains("/stats?today=${rig.today}"))
+        val runs = rig.db.trackRunDao().getAll().associateBy { it.trackLocalId }
+        assertEquals(2, runs.size)
+        val meditate = runs.getValue(localIdOf(10))
+        assertEquals(true, meditate.isStreak)
+        assertEquals(3, meditate.length)
+        assertTrue(meditate.upToYesterday)
+        assertEquals(rig.today.toString(), meditate.asOf)
+        val pages = runs.getValue(localIdOf(11))
+        assertNull(pages.isStreak)
+        assertNull(pages.length)
+        assertEquals(7, pages.maxValue)
+    }
+
+    @Test fun brokenStats_storedRunsStand_pullStillSucceeds() = runTest {
+        rig.stats = true
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.enqueueJson(statsJson)
+        rig.syncManager.pull(from, to)
+        val before = rig.db.trackRunDao().getAll().toSet()
+
+        for (broken in listOf(MockResponse().setResponseCode(500), MockResponse().setResponseCode(200).setBody("<html>oops</html>"))) {
+            rig.enqueueAsset("ocs/tracks_ok.json")
+            rig.enqueueAsset("ocs/ticks_ok.json")
+            rig.enqueue(broken)
+            rig.syncManager.pull(from, to)
+
+            assertEquals(SyncStatus.Idle, rig.syncManager.status.value)
+            assertEquals(before, rig.db.trackRunDao().getAll().toSet())
+            assertEquals("ticks still synced", 3, rig.db.tickDao().getRange(from.toString(), to.toString()).size)
+        }
+    }
+
+    @Test fun deletingATrack_cascadesToItsNotesAndRun() = runTest {
+        rig.enqueueAsset("ocs/tracks_ok.json")
+        rig.enqueueAsset("ocs/empty.json")
+        rig.syncManager.pull(from, to)
+        val meditate = localIdOf(10)
+        rig.db.noteDao().upsert(NoteEntity(trackLocalId = meditate, date = "2026-04-29", text = "x"))
+        rig.db.trackRunDao().replaceAll(
+            listOf(TrackRunEntity(meditate, "2026-04-30", isStreak = true, length = 1, upToYesterday = false, maxValue = 1)),
+        )
+        rig.db.trackDao().deleteById(meditate)
+        assertNull(rig.db.noteDao().find(meditate, "2026-04-29"))
+        assertTrue(rig.db.trackRunDao().getAll().isEmpty())
     }
 }

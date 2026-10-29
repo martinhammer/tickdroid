@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui.journal
 
 import android.text.format.DateUtils
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -89,6 +90,7 @@ internal fun TracksDownGrid(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenDay: (LocalDate) -> Unit = {},
 ) {
     if (state.tracks.isEmpty()) {
         JournalEmptyState(state)
@@ -106,7 +108,7 @@ internal fun TracksDownGrid(
                     .only(WindowInsetsSides.Horizontal)
             )
     ) {
-        TracksDownContent(state, maxWidth.value, onLoadOlder, onToggleBoolean, onAdjustCounter)
+        TracksDownContent(state, maxWidth.value, onLoadOlder, onToggleBoolean, onAdjustCounter, onOpenDay)
     }
 }
 
@@ -117,6 +119,7 @@ private fun TracksDownContent(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenDay: (LocalDate) -> Unit,
 ) {
     val tracks = state.tracks
     val metrics = remember(widthDp, state.density) {
@@ -179,7 +182,8 @@ private fun TracksDownContent(
                         userScrollEnabled = false,
                     ) {
                         items(count) { column ->
-                            DayHeader(day = dayForColumn(column, today), today = today, slot = slot)
+                            val day = dayForColumn(column, today)
+                            DayHeader(day = day, today = today, slot = slot, onClick = { onOpenDay(day) })
                         }
                     }
                 }
@@ -291,6 +295,7 @@ private fun TracksDownColumns(
                             editable = state.editableDays.isEditable(day, today),
                             onToggleBoolean = { onToggleBoolean(track.localId, day) },
                             onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
+                            hasNote = TickKey(track.localId, day) in state.noteKeys,
                         )
                     }
                 }
@@ -330,7 +335,7 @@ private fun RangeLabel(
 }
 
 @Composable
-private fun DayHeader(day: LocalDate, today: LocalDate, slot: Dp) {
+private fun DayHeader(day: LocalDate, today: LocalDate, slot: Dp, onClick: () -> Unit) {
     val locale = LocalConfiguration.current.locales[0]
     val weekend = rememberIsWeekend(day)
     val isToday = day == today
@@ -339,7 +344,10 @@ private fun DayHeader(day: LocalDate, today: LocalDate, slot: Dp) {
         modifier = Modifier
             .width(slot)
             .height(DayHeaderHeight)
-            .background(if (weekend) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent),
+            .background(if (weekend) MaterialTheme.colorScheme.surfaceContainerLow else Color.Transparent)
+            // The header row doesn't scroll by touch (it follows the body), so a tap has
+            // nothing to fight.
+            .clickable(onClickLabel = OpenInTodayLabel, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

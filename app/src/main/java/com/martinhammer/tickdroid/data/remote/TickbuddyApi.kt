@@ -1,6 +1,9 @@
 package com.martinhammer.tickdroid.data.remote
 
 import com.martinhammer.tickdroid.data.remote.dto.CapabilitiesData
+import com.martinhammer.tickdroid.data.remote.dto.NoteDto
+import com.martinhammer.tickdroid.data.remote.dto.NoteTextResponse
+import com.martinhammer.tickdroid.data.remote.dto.StatsDto
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TickToggleResponse
 import com.martinhammer.tickdroid.data.remote.dto.TickValueResponse
@@ -133,4 +136,52 @@ interface TickbuddyApi {
     /** 204 with no body; deletes the track's ticks too. A `Response` so the empty body is safe. */
     @DELETE("/ocs/v2.php/apps/tickbuddy/api/tracks/{id}")
     suspend fun deleteTrack(@Path("id") id: Long): Response<Unit>
+
+    // Notes (capability `notes`) and stats (capability `stats`). Form-encoded like the tick calls.
+
+    /**
+     * Every track's notes in the range, both ends included (private and archived tracks too).
+     * [includeAllTypes] as for [getTicks]; a server that doesn't filter notes ignores it.
+     */
+    @GET("/ocs/v2.php/apps/tickbuddy/api/notes")
+    suspend fun getNotes(
+        @Query("from") from: String,
+        @Query("to") to: String,
+        @Query("includeAllTypes") includeAllTypes: Boolean? = null,
+    ): OcsEnvelope<List<NoteDto>>
+
+    /** Creates or replaces the day's note; answers the stored text. Never sent empty (see [deleteNote]). */
+    @FormUrlEncoded
+    @POST("/ocs/v2.php/apps/tickbuddy/api/notes/set")
+    suspend fun setNote(
+        @Field("trackId") trackId: Long,
+        @Field("date") date: String,
+        @Field("text") text: String,
+    ): OcsEnvelope<NoteTextResponse>
+
+    /**
+     * Adds lines to the day's note, skipping text already there as whole lines (capability
+     * `notesAppend`), so a retry is safe; answers the whole note. Never `allowDuplicate`.
+     */
+    @FormUrlEncoded
+    @POST("/ocs/v2.php/apps/tickbuddy/api/notes/append")
+    suspend fun appendNote(
+        @Field("trackId") trackId: Long,
+        @Field("date") date: String,
+        @Field("text") text: String,
+    ): OcsEnvelope<NoteTextResponse>
+
+    /** 204, also when there was no note. A `Response`, so the empty body is safe (as [deleteTrack]). */
+    @DELETE("/ocs/v2.php/apps/tickbuddy/api/notes")
+    suspend fun deleteNote(
+        @Query("trackId") trackId: Long,
+        @Query("date") date: String,
+    ): Response<Unit>
+
+    /**
+     * Every active track's stats as of [today], the phone's date. No `includeAllTypes`: the
+     * parameter isn't defined here, so a track of a newer type may be missing from the answer.
+     */
+    @GET("/ocs/v2.php/apps/tickbuddy/api/stats")
+    suspend fun getStats(@Query("today") today: String): OcsEnvelope<List<StatsDto>>
 }

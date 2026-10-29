@@ -7,6 +7,8 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
+import com.martinhammer.tickdroid.data.local.NoteDao
+import com.martinhammer.tickdroid.data.local.NoteEntity
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
@@ -16,7 +18,10 @@ import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.ocsErrorMessage
 import com.martinhammer.tickdroid.data.remote.ocsErrorReason
 import com.martinhammer.tickdroid.data.time.Clock
+import com.martinhammer.tickdroid.domain.MAX_NOTE_CHARS
+import com.martinhammer.tickdroid.domain.NotePushPlan
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.domain.planNotePush
 import androidx.room.withTransaction
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -40,6 +45,11 @@ import kotlin.coroutines.cancellation.CancellationException
  *   the first. Otherwise, and for a change queued before v4 (`pendingDelta == null`): `set` with
  *   the absolute value.
  *
+ * Then every dirty note (capability `notes`; without it they stay queued): read the server's note
+ * for the day and send what [planNotePush] says. The phone's version when the server's note is
+ * unchanged since the change began (or the server has no `notesAppend`); when it changed
+ * elsewhere, only the phone's new lines, with `append`, so nothing on the server is removed.
+ *
  * Each row is re-read just before it is sent (taps don't take the sync lock), and settled
  * against what it holds by the time the answer arrives, so a tap made during a request is kept
  * and sent by the next run. Only the push deletes rows: once the server says the day is empty.
@@ -47,7 +57,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * After an HTTP error on one row ([pushFailureFor]): 401 signs the user out and stops for good;
  * 423 (a read-only, i.e. archived, track) drops that tick, carries on and tells the user once per
  * track ([PushNotices], after the pull); 404 / 400 / 422 carrying a Tickbuddy `reason` (track
- * deleted elsewhere, or a bug) drops it silently and carries on; anything else, and IO / TLS failures,
+ * deleted elsewhere, or a bug) drops it silently and carries on; ticks and notes alike. Anything else, and IO / TLS failures,
  * stop the drain and retry with exponential backoff. Track changes are online only, so we never
  * push tracks.
  */
@@ -58,6 +68,7 @@ class PushWorker @AssistedInject constructor(
     private val api: TickbuddyApi,
     private val database: TickdroidDatabase,
     private val tickDao: TickDao,
+    private val noteDao: NoteDao,
     private val trackDao: TrackDao,
     private val authRepository: AuthRepository,
     private val syncManager: SyncManager,
@@ -73,6 +84,9 @@ class PushWorker @AssistedInject constructor(
      * per sync.
      */
     private val refusals = LinkedHashMap<Long, String>()
+
+    /** Notes whose merge would have been too long, one entry per track, shown after [refusals]. */
+    private val tooLong = LinkedHashMap<Long, String>()
 
     override suspend fun doWork(): Result {
         val drainResult = syncManager.runExclusive { drain() }
@@ -90,7 +104,7 @@ class PushWorker @AssistedInject constructor(
         // After the pull, so the journal and widgets already show what the server kept. Also
         // after a retry: the refused rows are gone, so a later run would never mention them.
         // Not after a 401: the app is signing out.
-        if (drainResult != Result.failure()) refusals.values.forEach { pushNotices.show(it) }
+        if (drainResult != Result.failure()) (refusals.values + tooLong.values).forEach { pushNotices.show(it) }
         return drainResult
     }
 
@@ -105,8 +119,10 @@ class PushWorker @AssistedInject constructor(
             return Result.success()
         }
 
-        val dirty = tickDao.getDirty()
-        if (dirty.isEmpty()) {
+        val dirtyTicks = tickDao.getDirty()
+        // Without the flag notes stay queued, and go up once the server has it again.
+        val dirtyNotes = if (serverFeatures.notes.value) noteDao.getDirty() else emptyList()
+        if (dirtyTicks.isEmpty() && dirtyNotes.isEmpty()) {
             syncManager.reportPushStatus(PushStatus.Idle)
             return Result.success()
         }
@@ -115,41 +131,18 @@ class PushWorker @AssistedInject constructor(
         syncManager.reportPushStatus(PushStatus.Pushing)
         try {
             val tracks = trackDao.getAll().associateBy { it.localId }
-            for (queued in dirty) {
+            for (queued in dirtyTicks) {
                 val track = tracks[queued.trackLocalId] ?: continue
                 // The snapshot only gives the order: a tap may have changed the row since.
                 val entity = tickDao.findById(queued.localId)?.takeIf { it.dirty } ?: continue
-                try {
-                    pushOne(track, entity)
-                } catch (e: HttpException) {
-                    val body = e.response()?.errorBody()?.string() // can only be read once
-                    when (pushFailureFor(e.code(), ocsErrorReason(body, json))) {
-                        PushFailure.SignOut -> {
-                            authRepository.signOut()
-                            syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "Session expired"))
-                            return Result.failure()
-                        }
-                        PushFailure.Refused -> {
-                            tickDao.deleteById(entity.localId)
-                            noteRefusal(track, body)
-                        }
-                        PushFailure.Drop -> {
-                            // 422 is a reused Idempotency-Key: only a bug here can cause one.
-                            if (e.code() == 422) Log.w(TAG, "Dropping a tick refused with HTTP 422")
-                            tickDao.deleteById(entity.localId)
-                        }
-                        PushFailure.Retry -> {
-                            syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
-                            return Result.retry()
-                        }
-                    }
-                } catch (e: SSLException) {
-                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.UntrustedCertificate, e.message))
-                    return Result.retry()
-                } catch (e: IOException) {
-                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))
-                    return Result.retry()
-                }
+                send(track, "tick", drop = { tickDao.deleteById(entity.localId) }) { pushOne(track, entity) }
+                    ?.let { return it }
+            }
+            for (queued in dirtyNotes) {
+                val track = tracks[queued.trackLocalId] ?: continue
+                val note = noteDao.findById(queued.localId)?.takeIf { it.dirty } ?: continue
+                send(track, "note", drop = { noteDao.deleteById(note.localId) }) { pushNote(track, note) }
+                    ?.let { return it }
             }
         } catch (e: CancellationException) {
             // Stopped mid-push: WorkManager cancels the worker when JobScheduler drops it, e.g.
@@ -165,7 +158,52 @@ class PushWorker @AssistedInject constructor(
     }
 
     /**
-     * Once per track: Tickbuddy refuses a tick with 423 because the track is archived. Another
+     * Runs one row's request ([block]) with the drain's error handling. Null: carry on with the
+     * queue (also after [drop]ping a refused row). Otherwise the drain stops with that result.
+     */
+    private suspend fun send(
+        track: TrackEntity,
+        kind: String,
+        drop: suspend () -> Unit,
+        block: suspend () -> Unit,
+    ): Result? {
+        try {
+            block()
+        } catch (e: HttpException) {
+            val body = e.response()?.errorBody()?.string() // can only be read once
+            when (pushFailureFor(e.code(), ocsErrorReason(body, json))) {
+                PushFailure.SignOut -> {
+                    authRepository.signOut()
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "Session expired"))
+                    return Result.failure()
+                }
+                PushFailure.Refused -> {
+                    drop()
+                    noteRefusal(track, body)
+                }
+                PushFailure.Drop -> {
+                    // 422 is a reused Idempotency-Key and 400 a value the server refused: the
+                    // phone checks what the server checks, so only a bug here can cause either.
+                    if (e.code() != 404) Log.w(TAG, "Dropping a $kind refused with HTTP ${e.code()}")
+                    drop()
+                }
+                PushFailure.Retry -> {
+                    syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerError, "HTTP ${e.code()}"))
+                    return Result.retry()
+                }
+            }
+        } catch (e: SSLException) {
+            syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.UntrustedCertificate, e.message))
+            return Result.retry()
+        } catch (e: IOException) {
+            syncManager.reportPushStatus(PushStatus.Error(SyncErrorKind.ServerUnreachable, e.message))
+            return Result.retry()
+        }
+        return null
+    }
+
+    /**
+     * Once per track: Tickbuddy refuses a tick or a note with 423 because the track is archived. Another
      * reason (a future kind of read-only track) shows the server's own message, or nothing.
      */
     private fun noteRefusal(track: TrackEntity, body: String?) {
@@ -269,7 +307,59 @@ class PushWorker @AssistedInject constructor(
         settleYesNo(entity.localId, sent = desiredTicked, serverTicked = desiredTicked)
     }
 
+    /**
+     * Reads the server's note for the day, then sends what [planNotePush] says. A lost `append` is
+     * safe to repeat (the server skips text already there as whole lines). Between the read and a
+     * `set` or delete, another writer's change is overwritten: the server has no conditional
+     * write for notes, an accepted gap.
+     */
+    private suspend fun pushNote(track: TrackEntity, note: NoteEntity) {
+        val serverId = track.serverId ?: return // unsynced track: wait until a pull picks it up
+        val server = api.getNotes(from = note.date, to = note.date, includeAllTypes = true).ocs.data
+            .firstOrNull { it.trackId == serverId && it.date == note.date }?.text ?: ""
+        val plan = planNotePush(
+            phone = note.text,
+            base = note.baseText ?: "",
+            server = server,
+            canAppend = serverFeatures.notesAppend.value,
+        )
+        when (plan) {
+            is NotePushPlan.Settle -> settleNote(note, plan.text)
+            is NotePushPlan.Set -> settleNote(note, api.setNote(serverId, note.date, plan.text).ocs.data.text)
+            is NotePushPlan.Append -> settleNote(note, api.appendNote(serverId, note.date, plan.text).ocs.data.text)
+            NotePushPlan.Delete -> {
+                val response = api.deleteNote(serverId, note.date)
+                if (!response.isSuccessful) throw HttpException(response)
+                settleNote(note, "")
+            }
+            NotePushPlan.TooLong -> {
+                // Nothing sent: the server's note shows again at once.
+                settleNote(note, server)
+                tooLong.putIfAbsent(
+                    track.localId,
+                    "The note for ${track.name} would be longer than $MAX_NOTE_CHARS characters, so the change wasn't saved.",
+                )
+            }
+        }
+    }
+
     // The settle steps re-read the row: a tap may have changed it while the request was out.
+
+    /**
+     * The server now holds [answer] for the day ("" for none). A row still holding the text that
+     * was sent settles clean at [answer] (or goes, when it's ""). A row edited during the request
+     * stays dirty with its new text; its base becomes [answer] only when the server now holds
+     * exactly what was sent, otherwise it stays, so the next run merges again.
+     */
+    private suspend fun settleNote(sent: NoteEntity, answer: String) = transaction {
+        val current = noteDao.findById(sent.localId) ?: return@transaction
+        when {
+            current.text != sent.text -> if (answer == sent.text) noteDao.update(current.copy(baseText = answer))
+            answer.isEmpty() -> noteDao.deleteById(current.localId)
+            else -> noteDao.update(current.copy(text = answer, dirty = false, baseText = null))
+        }
+    }
+
 
     /** A tap that changed the day's desired state during the request leaves it for the next run. */
     private suspend fun settleYesNo(localId: Long, sent: Boolean, serverTicked: Boolean) = transaction {

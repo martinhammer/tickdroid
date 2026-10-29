@@ -233,10 +233,10 @@ class TickRepositoryTest {
         }
     }
 
-    @Test fun observeHasDirty_flipsAcrossWrites() = runTest {
+    @Test fun observeHasUnsent_flipsAcrossWrites() = runTest {
         val trackId = seedTrack(type = "counter")
 
-        repo.observeHasDirty().test {
+        repo.observeHasUnsent().test {
             assertEquals(false, awaitItem())
             repo.adjustCounter(trackId, date, +1)
             assertEquals(true, awaitItem())

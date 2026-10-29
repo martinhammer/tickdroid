@@ -3,15 +3,21 @@ package com.martinhammer.tickdroid.data.sync
 import androidx.room.withTransaction
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
+import com.martinhammer.tickdroid.data.local.NoteDao
+import com.martinhammer.tickdroid.data.local.NoteEntity
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
 import com.martinhammer.tickdroid.data.local.TrackEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsDao
+import com.martinhammer.tickdroid.data.local.TrackRunDao
+import com.martinhammer.tickdroid.data.local.TrackRunEntity
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
+import com.martinhammer.tickdroid.data.remote.dto.NoteDto
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
+import com.martinhammer.tickdroid.data.time.Clock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -74,6 +80,9 @@ class SyncManager @Inject constructor(
     private val trackPrefsDao: TrackPrefsDao,
     private val authRepository: AuthRepository,
     private val serverFeatures: ServerFeatures,
+    private val noteDao: NoteDao,
+    private val trackRunDao: TrackRunDao,
+    private val clock: Clock,
 ) {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -124,6 +133,13 @@ class SyncManager @Inject constructor(
                 refreshServerFeatures()
                 val tracks = fetchTracks()
                 val ticks = api.getTicks(from.toString(), to.toString(), includeAllTypes = true).ocs.data
+                // Without the flag nothing is read and the notes table is left as it is (a
+                // server rolled back keeps the phone's notes, and unsent ones stay queued).
+                val notes = if (serverFeatures.notes.value) {
+                    api.getNotes(from.toString(), to.toString(), includeAllTypes = true).ocs.data
+                } else {
+                    null
+                }
                 // Never abandon a half-applied reconcile: see schedulePull's note on what
                 // Room does to the connection when a transaction's caller is cancelled.
                 withContext(NonCancellable) {
@@ -132,8 +148,10 @@ class SyncManager @Inject constructor(
                         // back from reconcileTicks.
                         applyTracks(tracks)
                         reconcileTicks(ticks, from.toString(), to.toString())
+                        if (notes != null) reconcileNotes(notes, from.toString(), to.toString())
                     }
                 }
+                if (serverFeatures.stats.value) refreshRuns()
             }
             _status.value = SyncStatus.Idle
         } catch (e: SSLException) {
@@ -207,6 +225,39 @@ class SyncManager @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
+        }
+    }
+
+    /**
+     * Reads `GET /api/stats` as of the phone's today into `track_runs`, one row per track the
+     * phone knows. On any failure but cancellation the stored runs stand and the pull carries on,
+     * as in [refreshServerFeatures]: a broken stats answer must never stop ticks syncing.
+     */
+    private suspend fun refreshRuns() {
+        val today = clock.today().toString()
+        val stats = try {
+            api.getStats(today).ocs.data
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return
+        }
+        withContext(NonCancellable) {
+            db.withTransaction {
+                val tracksByServerId = trackDao.getAll().associateBy { it.serverId }
+                val rows = stats.mapNotNull { dto ->
+                    val track = tracksByServerId[dto.trackId] ?: return@mapNotNull null
+                    TrackRunEntity(
+                        trackLocalId = track.localId,
+                        asOf = today,
+                        isStreak = dto.current?.isStreak,
+                        length = dto.current?.length,
+                        upToYesterday = dto.upToYesterday,
+                        maxValue = dto.maxValue,
+                    )
+                }.distinctBy { it.trackLocalId }
+                trackRunDao.replaceAll(rows)
+            }
         }
     }
 
@@ -317,6 +368,37 @@ class SyncManager @Inject constructor(
         for ((key, entity) in localInRange) {
             if (key !in seenKeys && !entity.dirty) {
                 tickDao.deleteById(entity.localId)
+            }
+        }
+    }
+
+    /**
+     * Mirrors [reconcileTicks]: a server note with no local row is inserted clean, a clean row
+     * takes the server's text, a dirty row is left alone (its `baseText` too), and a clean row in
+     * the range the server didn't return is deleted. Notes of a track not in Room are skipped.
+     */
+    private suspend fun reconcileNotes(remote: List<NoteDto>, from: String, to: String) {
+        val tracksByServerId = trackDao.getAll().associateBy { it.serverId }
+        // Includes dirty "" rows, so a queued deletion is seen and skipped as dirty.
+        val localInRange = noteDao.getRange(from, to).associateBy { it.trackLocalId to it.date }
+        val seenKeys = mutableSetOf<Pair<Long, String>>()
+
+        for (dto in remote) {
+            val track = tracksByServerId[dto.trackId] ?: continue
+            if (dto.text.isEmpty()) continue
+            val key = track.localId to dto.date
+            seenKeys += key
+            val existing = localInRange[key]
+            if (existing == null) {
+                noteDao.upsert(NoteEntity(trackLocalId = track.localId, date = dto.date, text = dto.text))
+            } else if (!existing.dirty && existing.text != dto.text) {
+                noteDao.update(existing.copy(text = dto.text, baseText = null))
+            }
+        }
+
+        for ((key, entity) in localInRange) {
+            if (key !in seenKeys && !entity.dirty) {
+                noteDao.deleteById(entity.localId)
             }
         }
     }

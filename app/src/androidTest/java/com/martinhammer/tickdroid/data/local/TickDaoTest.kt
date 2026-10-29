@@ -55,10 +55,10 @@ class TickDaoTest {
         assertTrue(dirty.first().deleted)
     }
 
-    @Test fun observeHasDirty_flipsAcrossWriteAndClear() = runTest {
+    @Test fun observeHasUnsent_flipsAcrossWriteAndClear() = runTest {
         val trackId = seedTrack()
 
-        db.tickDao().observeHasDirty().test {
+        db.tickDao().observeHasUnsent().test {
             assertEquals(false, awaitItem())
             db.tickDao().upsert(
                 TickEntity(serverId = null, trackLocalId = trackId, date = date, value = 1, dirty = true),

@@ -164,6 +164,21 @@ Two hard rules that your sync layer must respect:
 1. **Sparse storage.** A tick row existing means "yes" or "count = value". No row means "no" or "count = 0". A boolean tick is never stored as `value=0`. A counter tick with value 0 is deleted, not kept.
 2. **Uniqueness.** `(user_id, track_id, date)` is unique. You can't have two ticks for the same track on the same day.
 
+### Note
+
+> Requires `features.notes` (§1).
+
+```
+trackId  int       foreign key to Track
+date     string    "YYYY-MM-DD"
+text     string    plain text, 1..500 characters
+```
+
+- **One note per track per day**, keyed by `(trackId, date)`; there is no note id.
+- **Independent of ticks.** A note can sit on a day with no tick, and unticking (which deletes the tick row) never deletes the note. A note-only day is not a tick anywhere: not in `GET /api/ticks`, `bounds` or `stats`.
+- **Plain text, stored as sent.** The server turns `\r\n` and `\r` into `\n` and trims spaces, tabs and line breaks at both ends, nothing more. Inner line breaks and tabs are kept. It never strips or escapes markup, so **escape it for your own output** (Compose `Text` does). Length is counted in Unicode code points (`é` is one, a family or flag emoji several).
+- **Empty means none.** Setting an empty (or whitespace-only) text deletes the note, everywhere a note is written.
+
 ### Dates
 
 - Always `YYYY-MM-DD`, e.g. `"2026-04-24"`.
@@ -264,6 +279,84 @@ Form params:
 - `value` (int, required). `<= 0` deletes the tick; `> 0` creates or updates it.
 
 Response: `{"value": <stored value>}`. `0` means no row exists.
+
+### Notes
+
+> Requires `features.notes` (§1). On servers without it these routes return `404`.
+
+Checks on a note's text, wherever it is written (here, `note` on tick calls, and imports), each a `400` with nothing saved:
+- longer than 500 characters after trimming: `Notes can be at most 500 characters`
+- not valid UTF-8: `Notes must be UTF-8 text`
+- control characters other than `\n` and `\t` (U+0000–U+001F, U+007F, U+0080–U+009F): `Notes can't contain control characters`
+
+A JSON number is stored as its digits; a JSON `true` or `false` answers `400` `Notes must be UTF-8 text` (send `""` to delete).
+
+#### `GET /api/notes?from=YYYY-MM-DD&to=YYYY-MM-DD`
+Notes of every track (private and archived included) in the range, inclusive on both ends, newest first:
+
+```json
+[{"trackId": 3, "date": "2026-10-18", "text": "backup 03:14"}]
+```
+
+Both dates are required; a missing one or one that isn't a real date answers `400` `From and to must be dates as YYYY-MM-DD`.
+
+#### `POST /api/notes/set`
+Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string; empty deletes the note).
+
+Response: `{"text": "…"}`, the stored text after trimming (`""` when deleted). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above. On an archived track nothing changes and the stored note comes back (`""` if none), with `200`. With `Prefer: handling=strict` (see §1, Read-only tracks) the answer is `423` instead, with nothing written.
+
+#### `POST /api/notes/append`
+> Requires `features.notesAppend` (§1). On servers without it this route returns `404`.
+
+Add text to the day's note without overwriting what another device or script wrote meanwhile — for example an agent logging each new activity's link on the day it ticks Exercise. Form params: `trackId` (int), `date` (`YYYY-MM-DD`), `text` (string), `allowDuplicate` (bool, optional, default `false`).
+
+- **No note yet:** the text is stored.
+- **A note exists:** the result is the note, a line break (`\n`), and the text.
+- **Already there:** if every line of the text already appears in the note, in order and as whole consecutive lines (case-sensitive, after the server's trimming), nothing changes and the call still answers `200`. So a script that runs every hour, or a retry after a network error, never adds the same line twice. A text that is only part of a line is appended. `allowDuplicate=true` appends it anyway.
+- **Empty text** (after trimming) changes nothing; unlike `set`, it never deletes.
+- **Too long:** if the result would be over 500 characters, `400` `The note would be longer than 500 characters`, nothing written.
+
+Response: `{"text": "…"}`, the whole stored note afterwards (`""` if none). Errors, in this order: `404` unknown track; `400` `Date must be a date as YYYY-MM-DD`; `400` text checks above; `400` too long; `409` `The note changed while appending; try again` if other writers changed the note three times in a row while the server was appending (nothing written; retrying is safe). On an archived track nothing changes and the stored note comes back, with `200`. With `Prefer: handling=strict`: `423`, empty text included, and the length check doesn't run.
+
+Without `allowDuplicate` a retry is already safe (the text is found and skipped); with it, send an `Idempotency-Key` (with `features.idempotencyKey`) so a retry can't add the text twice: see §1, Retrying writes safely.
+
+#### `DELETE /api/notes?trackId=n&date=YYYY-MM-DD`
+Deletes the day's note. `204`, also when there was none. `404` unknown track, `400` bad date. On an archived track nothing is deleted, still `204`; with `Prefer: handling=strict`, `423`.
+
+### Stats
+
+#### `GET /api/stats?today=YYYY-MM-DD[&from=YYYY-MM-DD][&to=YYYY-MM-DD][&trackId=n][&includeRuns=true][&includeArchived=true]`
+> Requires `features.stats` (§1). On servers without it this route returns `404`.
+
+Totals, streaks and highest/lowest value per track, worked out on the server with the same rule the web uses, so you don't need a track's whole history to show them.
+
+Params:
+- `today` — **the device's local date**. Whether today is still open decides where a streak ends, so always send it. If missing, the server's date is used (its default time zone, usually UTC). Not a real date: `400` `Today must be a date as YYYY-MM-DD`.
+- `from`, `to` — optional, a period (requires `features.statsPeriod`); either may be given alone. Only the period's ticks count, and streaks and breaks crossing either edge are cut there. With `from`, **every day from `from` takes part**, not just from the first tick: unticked days at the start are a break, and a period with no ticks is one break covering it. Not a real date: `400` `From and to must be dates as YYYY-MM-DD`; `from` after `to`: `400` `From must be on or before to`. Comparing two periods is two calls.
+- `trackId` — one track only (`404` if not yours). An archived track is returned even without `includeArchived`. The response is still a list, with one entry.
+- `includeRuns` — add `runs`: every streak and break, oldest first.
+- `includeArchived` — with all tracks, include archived ones (default: left out, as `GET /api/tracks`).
+
+Every track gets an entry, also with no ticks, in track list order. Private tracks are included. Each track is worked out up to its **end day**: the earliest of `to`, `today` and, for an archived track, its `archivedAt`. Ticks after the end day are ignored everywhere. Its **first day** is `from`, else its first tick. Every field below is measured from the first day to the end day: `current` and `upToYesterday` are as of the end day (for a past period, how it ended), and an end day before the first day (say, archived before `from`) gives the empty answer, as for a track with no ticks.
+
+```json
+[{
+  "trackId": 3, "total": 412, "weeklyMean": 9.58,
+  "last7": 11, "previous7": 14, "peak7": 31,
+  "current": {"isStreak": true, "length": 6, "from": "2026-10-11", "to": "2026-10-16"},
+  "upToYesterday": true,
+  "longestStreak": {"isStreak": true, "length": 41, "from": "2026-03-02", "to": "2026-04-11"},
+  "longestBreak": {"isStreak": false, "length": 9, "from": "2026-07-20", "to": "2026-07-28"},
+  "firstTick": "2025-12-21", "lastTick": "2026-10-16",
+  "maxValue": 7, "minValue": 0
+}]
+```
+
+- `total` — sum of values (yes/no: ticked days). `weeklyMean` — `total` ÷ (days from `from`, else `firstTick`, to the end day, counting both, ÷ 7), floored at one week; not rounded. Ticking every day gives exactly 7.
+- `last7` / `previous7` — sums over the end day and the 6 before it, and the 7 days before those. `peak7` — the highest 7-day sum in the history. The web's trend arrow compares `last7` with `previous7`, scaled by `max(peak7, 7)`.
+- `current`, `longestStreak`, `longestBreak` — runs `{isStreak, length, from, to}`, or `null` with no ticks; the first of equally long runs wins.
+- `upToYesterday` — `true` when the current run is a streak ending yesterday because today isn't ticked yet. **An open today never ends a streak**: if today is unticked but yesterday is ticked, counting stops at yesterday; otherwise an open today joins the break.
+- `maxValue` / `minValue` — over every day from `firstTick` to the end day, an unticked day counting as 0 (so `minValue` is 0 whenever a day was missed).
 
 ### Preferences
 

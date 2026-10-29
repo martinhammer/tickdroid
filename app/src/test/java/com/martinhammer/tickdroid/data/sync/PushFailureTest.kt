@@ -38,4 +38,8 @@ class PushFailureTest {
             assertEquals("HTTP $code", PushFailure.Retry, pushFailureFor(code, "trackNotFound"))
         }
     }
+
+    @Test fun `409 noteConflict (a note that kept changing while appending) is retried`() {
+        assertEquals(PushFailure.Retry, pushFailureFor(409, "noteConflict"))
+    }
 }

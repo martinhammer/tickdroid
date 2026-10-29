@@ -7,11 +7,13 @@ import com.martinhammer.tickdroid.data.prefs.GridDensity
 import com.martinhammer.tickdroid.data.prefs.JournalLayout
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.prefs.UiPreferences
+import com.martinhammer.tickdroid.data.repository.NoteRepository
 import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.data.repository.TickRepository
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
 import com.martinhammer.tickdroid.data.sync.PushStatus
+import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import com.martinhammer.tickdroid.data.sync.SyncErrorKind
 import com.martinhammer.tickdroid.data.sync.SyncManager
 import com.martinhammer.tickdroid.data.sync.SyncStatus
@@ -50,6 +52,9 @@ data class JournalUiState(
     val trackPrefs: Map<Long, TrackPrefs> = emptyMap(),
     val editableDays: EditableDays = EditableDays.Default,
     val layout: JournalLayout = JournalLayout.Default,
+    /** Days with a note, for the cells' dot. Empty without the server's `notes` flag. */
+    val noteKeys: Set<TickKey> = emptySet(),
+    val notesSupported: Boolean = false,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -57,6 +62,8 @@ data class JournalUiState(
 class JournalViewModel @Inject constructor(
     private val trackRepository: TrackRepository,
     private val tickRepository: TickRepository,
+    noteRepository: NoteRepository,
+    serverFeatures: ServerFeatures,
     private val syncManager: SyncManager,
     networkMonitor: NetworkMonitor,
     uiPreferences: UiPreferences,
@@ -74,6 +81,11 @@ class JournalViewModel @Inject constructor(
     }
 
     private val ticks = windowFlow.flatMapLatest { tickRepository.observeRange(it.oldestVisible, it.today) }
+
+    private val noteKeys = combine(
+        serverFeatures.notes,
+        windowFlow.flatMapLatest { noteRepository.observeRange(it.oldestVisible, it.today) },
+    ) { notes, map -> if (notes) map.keys else emptySet() }
 
     private data class PrefsBundle(
         val showPrivate: Boolean,
@@ -102,16 +114,16 @@ class JournalViewModel @Inject constructor(
         syncManager.status,
         syncManager.pushStatus,
         networkMonitor.isOnline,
-        tickRepository.observeHasDirty(),
+        tickRepository.observeHasUnsent(),
     ) { pull, push, online, dirty -> SyncBundle(pull, push, online, dirty) }
 
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
-        ticks,
+        combine(ticks, noteKeys, serverFeatures.notes) { t, n, f -> Triple(t, n, f) },
         windowFlow,
         syncBundle,
         prefs,
-    ) { tracks, ticks, window, sync, prefsBundle ->
+    ) { tracks, (ticks, noteKeys, notesSupported), window, sync, prefsBundle ->
         val visible = if (prefsBundle.showPrivate) tracks else tracks.filterNot { it.private }
         JournalUiState(
             tracks = visible,
@@ -126,6 +138,8 @@ class JournalViewModel @Inject constructor(
             trackPrefs = prefsBundle.trackPrefs,
             editableDays = prefsBundle.editableDays,
             layout = prefsBundle.layout,
+            noteKeys = noteKeys,
+            notesSupported = notesSupported,
         )
     }.stateIn(
         scope = viewModelScope,

@@ -45,12 +45,30 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
     /** Tickbuddy 2.3.0+: a write repeated with the same `Idempotency-Key` is answered, not redone. */
     val idempotencyKey: StateFlow<Boolean> = _idempotencyKey.asStateFlow()
 
+    private val _notes = MutableStateFlow(prefs.getBoolean(KEY_NOTES, false))
+
+    /** Notes on a track's day: `GET` / `DELETE /api/notes` and `POST /api/notes/set`. */
+    val notes: StateFlow<Boolean> = _notes.asStateFlow()
+
+    private val _notesAppend = MutableStateFlow(prefs.getBoolean(KEY_NOTES_APPEND, false))
+
+    /** `POST /api/notes/append`, which adds lines without removing another writer's. */
+    val notesAppend: StateFlow<Boolean> = _notesAppend.asStateFlow()
+
+    private val _stats = MutableStateFlow(prefs.getBoolean(KEY_STATS, false))
+
+    /** `GET /api/stats`: streaks and each track's highest value. */
+    val stats: StateFlow<Boolean> = _stats.asStateFlow()
+
     /** Stores what [capability] says. A missing capability (or flag) means false. */
     fun update(capability: TickbuddyCapability?) {
         store(_archivedTracks, KEY_ARCHIVED_TRACKS, archivedTracksFlag(capability))
         store(_booleanSet, KEY_BOOLEAN_SET, booleanSetFlag(capability))
         store(_counterIncrement, KEY_COUNTER_INCREMENT, counterIncrementFlag(capability))
         store(_idempotencyKey, KEY_IDEMPOTENCY_KEY, idempotencyKeyFlag(capability))
+        store(_notes, KEY_NOTES, notesFlag(capability))
+        store(_notesAppend, KEY_NOTES_APPEND, notesAppendFlag(capability))
+        store(_stats, KEY_STATS, statsFlag(capability))
     }
 
     private fun store(flow: MutableStateFlow<Boolean>, key: String, value: Boolean) {
@@ -66,6 +84,9 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
         _booleanSet.value = false
         _counterIncrement.value = false
         _idempotencyKey.value = false
+        _notes.value = false
+        _notesAppend.value = false
+        _stats.value = false
     }
 
     private companion object {
@@ -73,6 +94,9 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
         const val KEY_BOOLEAN_SET = "boolean_set"
         const val KEY_COUNTER_INCREMENT = "counter_increment"
         const val KEY_IDEMPOTENCY_KEY = "idempotency_key"
+        const val KEY_NOTES = "notes"
+        const val KEY_NOTES_APPEND = "notes_append"
+        const val KEY_STATS = "stats"
     }
 }
 
@@ -88,3 +112,12 @@ internal fun counterIncrementFlag(capability: TickbuddyCapability?): Boolean =
 
 internal fun idempotencyKeyFlag(capability: TickbuddyCapability?): Boolean =
     capability?.features?.get("idempotencyKey") == true
+
+internal fun notesFlag(capability: TickbuddyCapability?): Boolean =
+    capability?.features?.get("notes") == true
+
+internal fun notesAppendFlag(capability: TickbuddyCapability?): Boolean =
+    capability?.features?.get("notesAppend") == true
+
+internal fun statsFlag(capability: TickbuddyCapability?): Boolean =
+    capability?.features?.get("stats") == true

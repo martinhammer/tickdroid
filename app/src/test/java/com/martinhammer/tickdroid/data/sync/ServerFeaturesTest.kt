@@ -33,4 +33,20 @@ class ServerFeaturesTest {
             assertFalse(name, flag(TickbuddyCapability(features = mapOf(name to false))))
         }
     }
+
+    private val noteAndStatsFlags = mapOf<String, (TickbuddyCapability?) -> Boolean>(
+        "notes" to ::notesFlag,
+        "notesAppend" to ::notesAppendFlag,
+        "stats" to ::statsFlag,
+    )
+
+    @Test fun `the notes and stats flags are true only when the flag is true`() {
+        noteAndStatsFlags.forEach { (name, flag) ->
+            assertTrue(name, flag(TickbuddyCapability(features = mapOf(name to true))))
+            assertFalse(name, flag(null))
+            assertFalse(name, flag(TickbuddyCapability(version = "2.3.0")))
+            assertFalse(name, flag(TickbuddyCapability(features = mapOf("archivedTracks" to true))))
+            assertFalse(name, flag(TickbuddyCapability(features = mapOf(name to false))))
+        }
+    }
 }

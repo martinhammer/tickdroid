@@ -105,4 +105,48 @@ class MigrationTest {
             }
         }
     }
+
+    @Test fun migrate4To5_addsNotesAndRuns_keepsEverything() {
+        helper.createDatabase(dbName, 4).use { db ->
+            db.execSQL(
+                "INSERT INTO tracks (localId, serverId, name, type, sortOrder, private, archivedAt, dirty, deleted, updatedAtLocal) " +
+                    "VALUES (1, 11, 'Coffee', 'counter', 0, 0, NULL, 0, 0, 0)",
+            )
+            db.execSQL(
+                "INSERT INTO ticks (localId, serverId, trackLocalId, date, value, dirty, deleted, updatedAtLocal, pendingDelta, sentDelta, sentKey) " +
+                    "VALUES (1, 102, 1, '2026-10-28', 5, 1, 0, 0, 2, NULL, NULL)",
+            )
+            db.execSQL("INSERT INTO track_prefs (serverId, colorKey, emoji) VALUES (11, 'brown', '☕')")
+        }
+
+        // Validates the result against 5.json.
+        helper.runMigrationsAndValidate(dbName, 5, true, MIGRATION_4_5).use { db ->
+            db.query("SELECT value, dirty, pendingDelta FROM ticks").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(listOf(5, 1, 2), listOf(c.getInt(0), c.getInt(1), c.getInt(2)))
+            }
+            db.query("SELECT serverId, colorKey, emoji FROM track_prefs").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals("☕", c.getString(2))
+            }
+            for (table in listOf("notes", "track_runs")) {
+                db.query("SELECT COUNT(*) FROM $table").use { c ->
+                    c.moveToFirst()
+                    assertEquals(table, 0, c.getInt(0))
+                }
+            }
+
+            // Both are children of tracks: a track's deletion takes its note and run with it.
+            db.execSQL("PRAGMA foreign_keys = ON")
+            db.execSQL("INSERT INTO notes (trackLocalId, date, text, dirty, baseText) VALUES (1, '2026-10-28', 'n', 0, NULL)")
+            db.execSQL("INSERT INTO track_runs (trackLocalId, asOf, isStreak, length, upToYesterday, maxValue) VALUES (1, '2026-10-28', 1, 3, 0, 5)")
+            db.execSQL("DELETE FROM tracks WHERE localId = 1")
+            for (table in listOf("notes", "track_runs", "ticks")) {
+                db.query("SELECT COUNT(*) FROM $table").use { c ->
+                    c.moveToFirst()
+                    assertEquals("$table cascaded", 0, c.getInt(0))
+                }
+            }
+        }
+    }
 }

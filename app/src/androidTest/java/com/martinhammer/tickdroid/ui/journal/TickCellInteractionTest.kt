@@ -2,6 +2,7 @@ package com.martinhammer.tickdroid.ui.journal
 
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -176,4 +177,44 @@ class TickCellInteractionTest {
     }
 
     private fun fail(msg: String): Nothing = throw AssertionError(msg)
+
+    @Test fun withNote_drawsTheDot_andTapsStillWork() {
+        var lastDelta: Int? = null
+        rule.setContent {
+            TickdroidTheme {
+                TickCell(
+                    track = counterTrack,
+                    tick = Tick(trackLocalId = 2L, date = today, value = 3),
+                    prefs = null,
+                    cellSize = 56.dp,
+                    editable = true,
+                    onToggleBoolean = { fail("boolean not expected") },
+                    onAdjustCounter = { lastDelta = it },
+                    hasNote = true,
+                )
+            }
+        }
+        rule.onNodeWithTag("noteDot", useUnmergedTree = true).assertExists()
+        rule.onRoot().performClick()
+        assertEquals(1, lastDelta)
+        rule.onRoot().performTouchInput { longClick() }
+        assertEquals(-1, lastDelta)
+    }
+
+    @Test fun withoutNote_noDot() {
+        rule.setContent {
+            TickdroidTheme {
+                TickCell(
+                    track = booleanTrack,
+                    tick = null,
+                    prefs = null,
+                    cellSize = 56.dp,
+                    editable = true,
+                    onToggleBoolean = {},
+                    onAdjustCounter = {},
+                )
+            }
+        }
+        rule.onNodeWithTag("noteDot", useUnmergedTree = true).assertDoesNotExist()
+    }
 }

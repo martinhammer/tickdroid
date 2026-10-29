@@ -28,8 +28,8 @@ class TickRepository @Inject constructor(
             }
         }
 
-    /** Whether any tick row is currently `dirty=1` and waiting to be pushed. */
-    fun observeHasDirty(): Flow<Boolean> = tickDao.observeHasDirty()
+    /** Whether any tick or note is `dirty=1` and waiting to be pushed (see `TickDao.observeHasUnsent`). */
+    fun observeHasUnsent(): Flow<Boolean> = tickDao.observeHasUnsent()
 
     /**
      * Flip a boolean tick's desired state for [date]. Writes to Room with `dirty=1`
@@ -88,19 +88,22 @@ class TickRepository @Inject constructor(
         if (changed) syncScheduler.schedulePushNow()
     }
 
-    /**
-     * Run [block] in a Room transaction that a cancelled caller cannot tear down.
-     *
-     * These writes are launched from `viewModelScope`, so navigating away mid-tap cancels the
-     * caller. Room reacts to that by closing the pooled connection while the transaction block
-     * is still executing on its own executor thread; the next statement then throws
-     * `SQLITE_MISUSE` ("connection is closed") on a thread with no cancellation handling, which
-     * surfaces as an uncaught fatal. NonCancellable also means a tap the user already made is
-     * never silently dropped because the screen went away.
-     */
     private suspend fun <T> withTransactionUncancellable(block: suspend () -> T): T =
-        withContext(NonCancellable) { database.withTransaction { block() } }
+        database.withTransactionUncancellable(block)
 }
+
+/**
+ * Run [block] in a Room transaction that a cancelled caller cannot tear down.
+ *
+ * These writes are launched from `viewModelScope`, so navigating away mid-tap cancels the
+ * caller. Room reacts to that by closing the pooled connection while the transaction block
+ * is still executing on its own executor thread; the next statement then throws
+ * `SQLITE_MISUSE` ("connection is closed") on a thread with no cancellation handling, which
+ * surfaces as an uncaught fatal. NonCancellable also means a tap the user already made is
+ * never silently dropped because the screen went away.
+ */
+internal suspend fun <T> TickdroidDatabase.withTransactionUncancellable(block: suspend () -> T): T =
+    withContext(NonCancellable) { withTransaction { block() } }
 
 data class TickKey(val trackLocalId: Long, val date: LocalDate)
 

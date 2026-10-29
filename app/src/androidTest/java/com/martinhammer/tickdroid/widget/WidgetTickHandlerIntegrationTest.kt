@@ -44,7 +44,7 @@ class WidgetTickHandlerIntegrationTest {
         val localId = rig.db.trackDao().insert(
             TrackEntity(serverId = 101L, name = "Exercise", type = "boolean", sortOrder = 0, private = false),
         )
-        assertFalse(tickRepository.observeHasDirty().first())
+        assertFalse(tickRepository.observeHasUnsent().first())
 
         val outcome = handler.onTap(trackServerId = 101L, shownDay = today, delta = null)
 
@@ -52,7 +52,7 @@ class WidgetTickHandlerIntegrationTest {
         val row = rig.db.tickDao().find(localId, today.toString())!!
         assertEquals(1, row.value)
         assertTrue(row.dirty)
-        assertTrue(tickRepository.observeHasDirty().first())
+        assertTrue(tickRepository.observeHasUnsent().first())
         assertEquals(1, scheduler.pushNowCalls)
     }
 
