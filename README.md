@@ -42,28 +42,41 @@ Feel free to get in touch and/or submit an issue.
 
 ### Screenshots
 
-Main screen - light theme, days down, default colours and headings
-
-<img src="screenshots/Main_20261005_01.png" alt="Screenshot of main app screen" width="50%">
-
-Main screen - light theme, tracks down, default colours and headings
-
-<img src="screenshots/Main_20261005_02.png" alt="Screenshot of main app screen" width="50%">
-
-Main screen - dark theme, days down, with emojis as headings and some custom colours
-
-<img src="screenshots/Main_20261005_03.png" alt="Screenshot of main app screen" width="50%">
-
-App settings screen
-
-<img src="screenshots/Settings_20261005_01.png" alt="Screenshot of app settings screen" width="50%">
-
-Track settings screens - list and an individual track
-
-<img src="screenshots/Tracks_20261011_01.png" alt="Screenshot of track settings screen" width="50%">
-
-<img src="screenshots/Tracks_20261011_02.png" alt="Screenshot of track settings screen" width="50%">
-
-Home screen with widgets
-
-<img src="screenshots/Widgets_20261011_01.png" alt="Screenshot of track settings screen" width="50%">
+<table>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Main_20261005_01.png" width="240" alt="Main screen, light theme, days down"><br>
+      <sub>Main screen – light theme, days down, default colours and headings</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Main_20261005_02.png" width="240" alt="Main screen, light theme, tracks down"><br>
+      <sub>Main screen – light theme, tracks down, default colours and headings</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Main_20261005_03.png" width="240" alt="Main screen, dark theme, emoji headings"><br>
+      <sub>Main screen – dark theme, days down, emojis as headings and custom colours</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="screenshots/Settings_20261005_01.png" width="240" alt="App settings screen"><br>
+      <sub>App settings</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="screenshots/Tracks_20261011_01.png" width="240" alt="Track settings list"><br>
+      <sub>Track settings – list</sub>
+    </td>
+    <td align="center" valign="top">
+      <img src="screenshots/Tracks_20261011_02.png" width="240" alt="Individual track settings"><br>
+      <sub>Track settings – individual track</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="screenshots/Widgets_20261011_01.png" width="240" alt="Home screen with widgets"><br>
+      <sub>Home screen with widgets</sub>
+    </td>
+    <td></td>
+    <td></td>
+  </tr>
+</table>
