@@ -1,15 +1,21 @@
 package com.martinhammer.tickdroid.ui.today
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertTouchHeightIsEqualTo
+import androidx.compose.ui.test.assertTouchWidthIsEqualTo
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -22,6 +28,9 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.withKeyDown
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.height
+import androidx.compose.ui.unit.dp
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackRun
@@ -30,6 +39,8 @@ import com.martinhammer.tickdroid.ui.MainNavigationBar
 import com.martinhammer.tickdroid.ui.MainTab
 import com.martinhammer.tickdroid.ui.theme.TickdroidTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import kotlin.math.abs
 import org.junit.Rule
 import org.junit.Test
 import java.time.LocalDate
@@ -48,9 +59,12 @@ class TodayUiTest {
         notes: Boolean = true,
         run: TrackRun? = null,
         onOpenNote: () -> Unit = {},
+        onLockedTap: () -> Unit = {},
+        width: Dp? = null,
     ) {
         rule.setContent {
             TickdroidTheme {
+                Box(if (width != null) Modifier.width(width) else Modifier) {
                 TodayRow(
                     track = track,
                     prefs = TrackPrefs(),
@@ -65,7 +79,9 @@ class TodayUiTest {
                     onToggleBoolean = {},
                     onAdjustCounter = {},
                     onOpenNote = onOpenNote,
+                    onLockedTap = onLockedTap,
                 )
+                }
             }
         }
     }
@@ -93,13 +109,22 @@ class TodayUiTest {
         rule.onNodeWithText("Show more").assertExists()
     }
 
-    @Test fun lockedDay_noIcon_nameDoesNothing() {
+    @Test fun lockedDay_noIcon_nameAndNoteGiveTheLockedToast() {
         var opened = 0
-        row(note = "kept", editable = false, onOpenNote = { opened++ })
+        var locked = 0
+        row(note = "kept", editable = false, onOpenNote = { opened++ }, onLockedTap = { locked++ })
         rule.onNodeWithContentDescription("Add a note for Exercise").assertDoesNotExist()
-        rule.onNodeWithTag("todayName").assert(hasClickAction().not())
+        rule.onNodeWithTag("todayName").performClick()
         rule.onNodeWithTag("todayNote", useUnmergedTree = true).performClick()
         assertEquals(0, opened)
+        assertEquals(2, locked)
+    }
+
+    @Test fun lockedDay_withoutNotes_nameDoesNothing() {
+        var locked = 0
+        row(editable = false, notes = false, onLockedTap = { locked++ })
+        rule.onNodeWithTag("todayName").assert(hasClickAction().not())
+        assertEquals(0, locked)
     }
 
     @Test fun withoutNotes_noIconsAndNoNoteLine() {
@@ -118,6 +143,47 @@ class TodayUiTest {
     @Test fun noRun_noStreakText() {
         row()
         rule.onNodeWithTag("todayRun", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // Spacing (decision row 17): line 1 as tall as the name, 4dp to line 2, 8dp to the note line.
+
+    private fun tag(t: String) = rule.onNodeWithTag(t, useUnmergedTree = true).getUnclippedBoundsInRoot()
+
+    private fun assertAbout(what: String, expected: Dp, actual: Dp) =
+        assertTrue("$what: $actual, expected $expected", abs(actual.value - expected.value) <= 1f)
+
+    @Test fun lineOne_isTheNamesHeight_iconKeepsA48dpTouchTarget() {
+        row()
+        val line1 = tag("todayLine1")
+        assertTrue("line 1 is ${line1.height}", line1.height < 32.dp)
+        assertAbout("line 1 to line 2", 4.dp, tag("todayLine2").top - line1.bottom)
+        rule.onNodeWithContentDescription("Add a note for Exercise")
+            .assertTouchHeightIsEqualTo(48.dp)
+            .assertTouchWidthIsEqualTo(48.dp)
+    }
+
+    @Test fun noteLine_8dpUnderLineTwo_startsUnderTheName() {
+        row(note = "5k along the river")
+        assertAbout("line 2 to the note line", 8.dp, tag("todayNoteLine").top - tag("todayLine2").bottom)
+        assertAbout("note line start", tag("todayName").left, tag("todayNoteLine").left)
+        assertAbout("line 1 to line 2", 4.dp, tag("todayLine2").top - tag("todayLine1").bottom)
+    }
+
+    @Test fun wrappedStreak_sits4dpUnderTheSquares() {
+        // Narrow enough that "265-day streak, up to yesterday" can't sit beside the squares.
+        row(run = TrackRun(isStreak = true, length = 265, upToYesterday = true, maxValue = 1), width = 260.dp)
+        val squares = tag("todaySquares")
+        val run = tag("todayRun")
+        assertTrue("wrapped: run top ${run.top}, squares bottom ${squares.bottom}", run.top >= squares.bottom)
+        assertAbout("squares (outline included) to the wrapped streak", 4.dp, run.top - squares.bottom)
+    }
+
+    @Test fun streakBesideTheSquares_noExtraHeight() {
+        row(run = TrackRun(isStreak = true, length = 3, upToYesterday = false, maxValue = 1))
+        val squares = tag("todaySquares")
+        val run = tag("todayRun")
+        assertTrue("beside: run starts after the squares", run.left > squares.right)
+        assertAbout("line 2 is one line", maxOf(squares.height, run.height), tag("todayLine2").height)
     }
 
     // The card.

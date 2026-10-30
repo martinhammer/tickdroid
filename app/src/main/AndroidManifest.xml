@@ -27,13 +27,18 @@
         <!-- singleTop: a widget tap or setup's "Open Tickdroid" starts MainActivity in this task,
              and must bring the app back as it was left. Without it every such tap stacked a new
              copy on the old one, which opened on the start screen, and Back showed the old copy
-             before leaving the app. -->
+             before leaving the app.
+             adjustResize: with edge-to-edge the window is neither panned nor resized, and the
+             keyboard reaches Compose as WindowInsets.ime. Unset, Android chose adjustPan, which
+             panned the whole window up while Today's note card lifted itself above the keyboard
+             too, so the card opened at the top of the screen until the first key press. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:launchMode="singleTop"
-            android:theme="@style/Theme.Tickdroid">
+            android:theme="@style/Theme.Tickdroid"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

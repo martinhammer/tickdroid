@@ -4,6 +4,8 @@ import android.icu.text.DisplayContext
 import android.icu.text.RelativeDateTimeFormatter
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
+import androidx.compose.ui.graphics.Color
+import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackRun
 import java.time.LocalDate
 import java.time.ZoneId
@@ -114,4 +116,16 @@ fun levelFor(value: Int, isCounter: Boolean, maxValue: Int): Int {
     if (!isCounter) return 2
     if (maxValue <= 4) return minOf(4, value)
     return maxOf(1, minOf(4, Math.ceil(value.toDouble() / maxValue * 4).toInt()))
+}
+
+/**
+ * The colour every ticked square's level blends towards (a yes/no day at 45%, a counter's top
+ * level at 90%): the track's strong colour (decision row 19). A cell's pale container is told apart from an empty cell by its ✓ or
+ * number; a 10dp square has nothing else, so it needs contrast of its own. No custom colour: the
+ * theme's [primary] in both themes, as the web's `fillFor`. A custom colour: its container in dark
+ * theme, where it already stands out, and [TrackColor.strong] (the same hue darker) in light.
+ */
+fun squareColour(colorKey: String?, dark: Boolean, primary: Color): Color {
+    val custom = TrackColor.fromKey(colorKey) ?: return primary
+    return if (dark) custom.container else custom.strong
 }

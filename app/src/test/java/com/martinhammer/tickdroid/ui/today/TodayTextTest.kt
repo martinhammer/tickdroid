@@ -1,5 +1,7 @@
 package com.martinhammer.tickdroid.ui.today
 
+import androidx.compose.ui.graphics.Color
+import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackRun
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -63,5 +65,14 @@ class TodayTextTest {
         val old = today.minusDays(40)
         assertEquals(old.plusDays(6), window(old).first())
         assertEquals(old, window(old).last())
+    }
+
+    @Test fun `squareColour - primary without a colour, container in dark, strong in light`() {
+        val primary = Color(0xFF6750A4)
+        assertEquals(primary, squareColour(null, dark = false, primary = primary))
+        assertEquals(primary, squareColour(null, dark = true, primary = primary))
+        assertEquals(primary, squareColour("no-such-colour", dark = false, primary = primary))
+        assertEquals(TrackColor.BLUE.container, squareColour("blue", dark = true, primary = primary))
+        assertEquals(TrackColor.BLUE.strong, squareColour("blue", dark = false, primary = primary))
     }
 }

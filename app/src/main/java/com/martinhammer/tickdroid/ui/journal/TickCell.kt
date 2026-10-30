@@ -6,7 +6,6 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -18,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -109,7 +109,7 @@ internal fun TickCell(
             onClick = {
                 android.widget.Toast.makeText(
                     context,
-                    "This day is locked. Select editable days in App settings.",
+                    LockedDayMessage,
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             },
@@ -171,20 +171,31 @@ internal fun TickCell(
             }
         }
         if (hasNote) {
-            // The day has a note: a small dot in the top end corner, in the cell's content colour.
+            // The day has a note: a small dot in the top end corner, in the cell's content colour,
+            // over the content with a ring in the cell's own colour. The ✓ scales with the cell
+            // (60%) and the counter's number doesn't, so in small cells either can reach the
+            // dot's corner; the ring cuts a clean gap there at every cell size (decision row 18).
+            // The box is the ring's size, padded less by the same amount, so the dot's own edge
+            // is NoteDotInset from the corner. 4dp in cells under 32dp, else 6dp ([noteDotSizeDp]).
+            val dotSize = noteDotSizeDp(cellSize.value).dp
             Box(
                 Modifier
                     .align(Alignment.TopEnd)
-                    .padding(NoteDotInset)
-                    .size(NoteDotSize)
-                    .clip(CircleShape)
-                    .background(onContainer.copy(alpha = NoteDotAlpha))
+                    .padding(NoteDotInset - NoteDotRing)
+                    .size(dotSize + NoteDotRing * 2)
+                    .drawBehind {
+                        drawCircle(container, radius = (dotSize / 2 + NoteDotRing).toPx())
+                        drawCircle(onContainer.copy(alpha = NoteDotAlpha), radius = (dotSize / 2).toPx())
+                    }
                     .testTag("noteDot"),
             )
         }
     }
 }
 
-private val NoteDotSize = 6.dp
+/** The toast for a tap on a locked day: a cell here, and the name or note on Today. */
+internal const val LockedDayMessage = "This day is locked. Select editable days in App settings."
+
 private val NoteDotInset = 4.dp
+private val NoteDotRing = 1.5.dp
 private const val NoteDotAlpha = 0.8f

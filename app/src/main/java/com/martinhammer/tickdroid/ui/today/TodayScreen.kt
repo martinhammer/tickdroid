@@ -37,8 +37,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.flow.drop
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -49,9 +51,12 @@ import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.ui.MainNavigationBar
 import com.martinhammer.tickdroid.ui.MainTab
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
+import com.martinhammer.tickdroid.ui.common.HelpSheet
+import com.martinhammer.tickdroid.ui.common.todayHelpParagraphs
 import com.martinhammer.tickdroid.ui.journal.ChipClearance
 import com.martinhammer.tickdroid.ui.journal.JournalEmptyState
 import com.martinhammer.tickdroid.ui.journal.JumpToTodayChip
+import com.martinhammer.tickdroid.ui.journal.LockedDayMessage
 import com.martinhammer.tickdroid.ui.journal.OverflowMenu
 import com.martinhammer.tickdroid.ui.journal.SyncIndicator
 import com.martinhammer.tickdroid.ui.journal.SyncIssueChip
@@ -108,8 +113,12 @@ fun TodayScreen(
     val pagerState = rememberPagerState(initialPage = state.day.toEpochDay().toInt()) {
         state.today.toEpochDay().toInt() + 1
     }
+    // The view model owns the day. drop(1): the first value is only the page the pager was
+    // restored on, which is stale when Today comes back from the Journal with a day to show (a
+    // day label, the bar's Today item): reporting it would overwrite that day. The effect
+    // below brings the pager to the view model's day instead.
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { viewModel.showDay(LocalDate.ofEpochDay(it.toLong())) }
+        snapshotFlow { pagerState.settledPage }.drop(1).collect { viewModel.showDay(LocalDate.ofEpochDay(it.toLong())) }
     }
     LaunchedEffect(state.day) {
         val target = state.day.toEpochDay().toInt()
@@ -242,7 +251,7 @@ fun TodayScreen(
     }
 
     if (showHelp) {
-        TodayHelpSheet(notes = state.notesSupported, stats = state.statsSupported, onDismiss = { showHelp = false })
+        HelpSheet(todayHelpParagraphs(notes = state.notesSupported), onDismiss = { showHelp = false })
     }
 }
 
@@ -255,6 +264,7 @@ private fun TodayPage(
     onOpenNote: (trackLocalId: Long) -> Unit,
 ) {
     val editable = state.isEditable(day)
+    val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = ChipClearance),
@@ -274,6 +284,9 @@ private fun TodayPage(
                 onToggleBoolean = { onToggleBoolean(track.localId, day) },
                 onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
                 onOpenNote = { onOpenNote(track.localId) },
+                onLockedTap = {
+                    android.widget.Toast.makeText(context, LockedDayMessage, android.widget.Toast.LENGTH_SHORT).show()
+                },
             )
         }
     }

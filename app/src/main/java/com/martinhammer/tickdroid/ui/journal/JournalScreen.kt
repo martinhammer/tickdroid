@@ -95,6 +95,8 @@ import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
 import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
+import com.martinhammer.tickdroid.ui.common.HelpSheet
+import com.martinhammer.tickdroid.ui.common.journalHelpParagraphs
 import com.martinhammer.tickdroid.ui.MainNavigationBar
 import com.martinhammer.tickdroid.ui.MainTab
 import kotlinx.coroutines.launch
@@ -214,53 +216,7 @@ fun JournalScreen(
     }
 
     if (showHelp) {
-        HelpSheet(notes = state.notesSupported, onDismiss = { showHelp = false })
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HelpSheet(notes: Boolean, onDismiss: () -> Unit) {
-    val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    androidx.compose.material3.ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp),
-        ) {
-            Text("How to use Tickdroid", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Add and manage tracks in Tracks settings. They're shared with Tickbuddy on your Nextcloud.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Tap a cell to toggle a yes/no value or increment a counter; long-press to decrement a counter value.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (notes) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "Tap a day to open it on Today, where you can read and write its notes.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-            }
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Editable days, show/hide private tracks, and UI options are configured in App settings.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                "Custom track colours and heading icons can be configured in Tracks settings.",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
+        HelpSheet(journalHelpParagraphs(notes = state.notesSupported), onDismiss = { showHelp = false })
     }
 }
 
