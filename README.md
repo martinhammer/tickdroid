@@ -45,38 +45,44 @@ Feel free to get in touch and/or submit an issue.
 <table>
   <tr>
     <td align="center" valign="top" width="33%">
-      <img src="screenshots/Main_20261005_01.png" width="240" alt="Main screen, light theme, days down"><br>
-      <sub>Main screen – light theme, days down, default colours and headings</sub>
+      <img src="screenshots/Today_20261030_01.png" width="240" alt="Main screen, light theme, days down"><br>
+      <sub>Today screen – light theme, default colours and headings</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="screenshots/Main_20261005_02.png" width="240" alt="Main screen, light theme, tracks down"><br>
-      <sub>Main screen – light theme, tracks down, default colours and headings</sub>
+      <img src="screenshots/Today_20261030_02.png" width="240" alt="Main screen, light theme, tracks down"><br>
+      <sub>Today screen – dark theme, with custom colours and emojis</sub>
     </td>
     <td align="center" valign="top" width="33%">
-      <img src="screenshots/Main_20261005_03.png" width="240" alt="Main screen, dark theme, emoji headings"><br>
-      <sub>Main screen – dark theme, days down, emojis as headings and custom colours</sub>
+      <img src="screenshots/Widgets_20261030_01.png" width="240" alt="Main screen, light theme, tracks down"><br>
+      <sub>Home screen with widgets</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Journal_20261030_01.png" width="240" alt="Main screen, light theme, days down"><br>
+      <sub>Journal screen – light theme, days down, default colours and headings</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Journal_20261030_02.png" width="240" alt="Main screen, light theme, tracks down"><br>
+      <sub>Journal screen – light theme, tracks down, default colours and headings</sub>
+    </td>
+    <td align="center" valign="top" width="33%">
+      <img src="screenshots/Journal_20261030_03.png" width="240" alt="Main screen, dark theme, emoji headings"><br>
+      <sub>Journal screen – dark theme, days down, emojis as headings and custom colours</sub>
     </td>
   </tr>
   <tr>
     <td align="center" valign="top">
-      <img src="screenshots/Settings_20261005_01.png" width="240" alt="App settings screen"><br>
+      <img src="screenshots/Settings_20261030_01.png" width="240" alt="App settings screen"><br>
       <sub>App settings</sub>
     </td>
     <td align="center" valign="top">
-      <img src="screenshots/Tracks_20261011_01.png" width="240" alt="Track settings list"><br>
+      <img src="screenshots/Tracks_20261030_01.png" width="240" alt="Track settings list"><br>
       <sub>Track settings – list</sub>
     </td>
     <td align="center" valign="top">
-      <img src="screenshots/Tracks_20261011_02.png" width="240" alt="Individual track settings"><br>
+      <img src="screenshots/Tracks_20261030_02.png" width="240" alt="Individual track settings"><br>
       <sub>Track settings – individual track</sub>
     </td>
-  </tr>
-  <tr>
-    <td align="center" valign="top">
-      <img src="screenshots/Widgets_20261011_01.png" width="240" alt="Home screen with widgets"><br>
-      <sub>Home screen with widgets</sub>
-    </td>
-    <td></td>
-    <td></td>
   </tr>
 </table>
