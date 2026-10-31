@@ -1,0 +1,2 @@
+Today screen: one row per track for a single day, with the last seven days, the current streak or break, and notes.
+Notes are shown and can be added and edited on Today screen (requires Tickbuddy 2.3.0 or higher on the server).
