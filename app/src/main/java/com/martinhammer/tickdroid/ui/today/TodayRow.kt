@@ -70,6 +70,11 @@ private val OutlineWidth = 1.5.dp
 private val OutlineGap = 1.dp
 /** Line 1's note icon box: the name's height, not an IconButton's 48dp. */
 private val NoteIconBox = 24.dp
+/**
+ * The note icons' alpha over onSurfaceVariant: at full colour their solid strokes read darker
+ * than the streak text in the same grey (light theme, 31 Oct).
+ */
+private const val NoteIconAlpha = 0.7f
 /** Line 1 to line 2, and line 2 to the note line (decision row 17). */
 private val LineGap = 4.dp
 private val NoteLineGap = 8.dp
@@ -256,7 +261,7 @@ private fun NameLine(
                 Icon(
                     Icons.Outlined.Description,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = NoteIconAlpha),
                     modifier = Modifier.size(18.dp),
                 )
             }
@@ -290,7 +295,7 @@ private fun NoteLine(
         Icon(
             Icons.Outlined.Description,
             contentDescription = if (editable) "Edit the note for $trackName" else null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = NoteIconAlpha),
             modifier = Modifier
                 .padding(top = 2.dp)
                 .size(16.dp)
