@@ -24,6 +24,11 @@ data class TrackRunEntity(
     val isStreak: Boolean?,
     val length: Int?,
     val upToYesterday: Boolean,
-    /** The highest tick value over the track's period, for the Today squares' shading. */
+    /**
+     * The highest value over the track's period, for the Today squares' shading: a count, a
+     * Number's thousandths (0 with no entries), an ordered scale's place.
+     */
     val maxValue: Int,
+    /** A Number's lowest, in thousandths, or 1 on an ordered scale; null elsewhere or unknown. */
+    val minValue: Int? = null,
 )

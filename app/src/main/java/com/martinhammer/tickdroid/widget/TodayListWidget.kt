@@ -135,7 +135,7 @@ private fun ListRow(row: WidgetRow, day: LocalDate, labels: TrackLabels) {
         modifier = GlanceModifier.fillMaxWidth()
             .height(48.dp)
             .padding(horizontal = 16.dp)
-            .clickable(tickAction(row, day))
+            .clickable(tickAction(LocalContext.current, row, day))
             .semantics {
                 contentDescription = cellDescription(row, tapHint = true)
                 testTag = "widgetRow-${row.serverId}"

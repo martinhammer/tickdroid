@@ -5,10 +5,12 @@ import androidx.room.Room
 import com.martinhammer.tickdroid.data.local.MIGRATION_2_3
 import com.martinhammer.tickdroid.data.local.MIGRATION_3_4
 import com.martinhammer.tickdroid.data.local.MIGRATION_4_5
+import com.martinhammer.tickdroid.data.local.MIGRATION_5_6
 import com.martinhammer.tickdroid.data.local.NoteDao
 import com.martinhammer.tickdroid.data.local.TickDao
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
+import com.martinhammer.tickdroid.data.local.TrackOptionDao
 import com.martinhammer.tickdroid.data.local.TrackPrefsDao
 import com.martinhammer.tickdroid.data.local.TrackRunDao
 import dagger.Module
@@ -26,7 +28,7 @@ object DatabaseModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): TickdroidDatabase =
         Room.databaseBuilder(context, TickdroidDatabase::class.java, TickdroidDatabase.NAME)
-            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
             .build()
 
     @Provides
@@ -43,4 +45,7 @@ object DatabaseModule {
 
     @Provides
     fun provideTrackRunDao(db: TickdroidDatabase): TrackRunDao = db.trackRunDao()
+
+    @Provides
+    fun provideTrackOptionDao(db: TickdroidDatabase): TrackOptionDao = db.trackOptionDao()
 }

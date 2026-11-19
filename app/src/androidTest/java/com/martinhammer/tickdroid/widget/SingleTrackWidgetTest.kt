@@ -127,7 +127,7 @@ class SingleTrackWidgetTest {
     @Test fun archived_in_room_draws_choose_track_restored_draws_the_track() {
         val db = Room.inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java).build()
         try {
-            val repo = TrackRepository(db.trackDao())
+            val repo = TrackRepository(db.trackDao(), db.trackOptionDao())
             val config = WidgetConfig.Button(trackServerId = 101)
             fun model(archivedAt: String?): ButtonModel = runBlocking {
                 val existing = db.trackDao().findByServerId(101)

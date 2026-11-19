@@ -219,4 +219,34 @@ class WidgetModelsTest {
         assertEquals("FL", abbreviation("Floss"))
         assertEquals("X", abbreviation("x"))
     }
+
+    // Number and Choice tracks.
+
+    private val runTrack = track(5, 105, "Run", TrackType.Number).copy(unit = "km", decimalPlaces = 1)
+    private val moodTrack = track(6, 106, "Mood", TrackType.Choice).copy(options = listOf("Happy", "Sad"))
+
+    private fun rowOf(t: Track, value: Int?) =
+        (buildListModel(true, today, listOf(t), emptyMap(), value?.let { mapOf(TickKey(t.localId, today) to Tick(t.localId, today, it)) } ?: emptyMap(), null) as ListModel.Content).rows.single()
+
+    @Test fun `a Number of 0 or below is done, as is any Choice entry`() {
+        assertTrue(rowOf(runTrack, 0).done)
+        assertTrue(rowOf(runTrack, -1500).done)
+        assertFalse(rowOf(runTrack, null).done)
+        assertTrue(rowOf(moodTrack, 2).done)
+        assertFalse(rowOf(runTrack.copy(awaitingSync = true), 10400).done)
+    }
+
+    @Test fun `Number and Choice cells read their full value`() {
+        val uk = java.util.Locale.forLanguageTag("en-GB")
+        assertEquals("Run, 10.4 km", cellDescription(rowOf(runTrack, 10400), locale = uk))
+        assertEquals("Run, no value", cellDescription(rowOf(runTrack, null), locale = uk))
+        assertEquals("Mood, Sad", cellDescription(rowOf(moodTrack, 2), locale = uk))
+        assertEquals("Mood, #5", cellDescription(rowOf(moodTrack, 5), locale = uk))
+    }
+
+    @Test fun `every cell's entry URI is its own`() {
+        assertEquals("tickdroid://entry/105/20366", valueEntryUri(105, 20366))
+        assertTrue(valueEntryUri(105, 20366) != valueEntryUri(106, 20366))
+        assertTrue(valueEntryUri(105, 20366) != valueEntryUri(105, 20367))
+    }
 }

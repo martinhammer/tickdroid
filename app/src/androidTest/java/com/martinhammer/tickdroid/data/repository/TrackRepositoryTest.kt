@@ -20,7 +20,7 @@ class TrackRepositoryTest {
     @Before fun setUp() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         db = Room.inMemoryDatabaseBuilder(context, TickdroidDatabase::class.java).build()
-        repo = TrackRepository(db.trackDao())
+        repo = TrackRepository(db.trackDao(), db.trackOptionDao())
     }
 
     @After fun tearDown() {

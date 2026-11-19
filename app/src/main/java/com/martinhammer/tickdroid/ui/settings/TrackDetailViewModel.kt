@@ -9,6 +9,8 @@ import com.martinhammer.tickdroid.data.repository.TrackRepository
 import com.martinhammer.tickdroid.data.sync.ServerFeatures
 import com.martinhammer.tickdroid.data.sync.TrackChange
 import com.martinhammer.tickdroid.data.sync.TrackEditor
+import com.martinhammer.tickdroid.data.sync.cleanUnit
+import com.martinhammer.tickdroid.domain.CellLabel
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.cleanTrackName
@@ -39,6 +41,19 @@ data class TrackDetailUiState(
     val archiving: Boolean = false,
     /** The server can archive: "Archive track" and "Archive instead" are offered. */
     val archiveSupported: Boolean = false,
+    /** A Number's or Choice's settings while a change is out (each null when none is). */
+    val typeSettings: TypeSettingsState = TypeSettingsState(),
+    /** "Change unit" is saving: its Save shows a spinner. */
+    val savingUnit: Boolean = false,
+    /** The option whose rename is saving, by place. */
+    val renamingOption: Int? = null,
+)
+
+/** What the Number or Choice settings show while a change is on its way (as `pendingPrivate`). */
+data class TypeSettingsState(
+    val pendingDecimalPlaces: Int? = null,
+    val pendingAllowNegative: Boolean? = null,
+    val pendingOrderedScale: Boolean? = null,
 )
 
 sealed interface TrackDetailEvent {
@@ -56,6 +71,12 @@ sealed interface TrackDetailEvent {
 
     /** Whichever dialog archived (the archive confirm, or the delete confirm) closes; toast. */
     data class ArchiveFailed(val text: String) : TrackDetailEvent
+
+    /** "Change unit" closes. */
+    data object UnitDone : TrackDetailEvent
+
+    /** "Rename option" closes. */
+    data object OptionRenamed : TrackDetailEvent
     data class Toast(val text: String) : TrackDetailEvent
 }
 
@@ -80,6 +101,9 @@ class TrackDetailViewModel @Inject constructor(
         val deleted: Boolean = false,
         val archiving: Boolean = false,
         val archived: Boolean = false,
+        val type: TypeSettingsState = TypeSettingsState(),
+        val savingUnit: Boolean = false,
+        val renamingOption: Int? = null,
     ) {
         /** This screen's own delete or archive is running, or done and the screen is leaving. */
         val leaving: Boolean get() = deleting || deleted || archiving || archived
@@ -122,6 +146,9 @@ class TrackDetailViewModel @Inject constructor(
             deleting = busy.deleting || busy.deleted,
             archiving = busy.archiving || busy.archived,
             archiveSupported = archiveSupported,
+            typeSettings = busy.type,
+            savingUnit = busy.savingUnit,
+            renamingOption = busy.renamingOption,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -183,6 +210,111 @@ class TrackDetailViewModel @Inject constructor(
             }
             // On failure the switch moves back, since Room still has the old value.
             busy.update { it.copy(pendingPrivate = null) }
+        }
+    }
+
+    /** "Journal cells" on a Choice track: kept on this phone, so it works offline (as colour). */
+    fun setCellLabel(cellLabel: CellLabel) {
+        val serverId = state.value.track?.serverId ?: return
+        viewModelScope.launch { prefsRepository.setCellLabel(serverId, cellLabel) }
+    }
+
+    /** A Number's unit, from "Change unit"; "" empties it. A failure keeps the dialog open. */
+    fun setUnit(unit: String) {
+        val track = state.value.track ?: return
+        val serverId = track.serverId ?: return
+        if (busy.value.savingUnit) return
+        val clean = cleanUnit(unit)
+        if (clean == track.unit.orEmpty()) {
+            _events.trySend(TrackDetailEvent.UnitDone)
+            return
+        }
+        if (!online.value) return
+        busy.update { it.copy(savingUnit = true) }
+        viewModelScope.launch {
+            when (val result = trackEditor.setUnit(serverId, clean)) {
+                is TrackChange.Failed -> _events.send(TrackDetailEvent.Toast(result.message))
+                TrackChange.SignedOut -> Unit
+                else -> {
+                    awaitRoom { it.track?.unit.orEmpty() == clean }
+                    _events.send(TrackDetailEvent.UnitDone)
+                }
+            }
+            busy.update { it.copy(savingUnit = false) }
+        }
+    }
+
+    /** Renames a Choice option, from "Rename option". A failure keeps the dialog open. */
+    fun renameOption(place: Int, label: String) {
+        val track = state.value.track ?: return
+        val serverId = track.serverId ?: return
+        val clean = cleanTrackName(label) ?: return
+        if (busy.value.renamingOption != null) return
+        if (clean == track.options.getOrNull(place - 1)) {
+            _events.trySend(TrackDetailEvent.OptionRenamed)
+            return
+        }
+        if (!online.value) return
+        busy.update { it.copy(renamingOption = place) }
+        viewModelScope.launch {
+            when (val result = trackEditor.renameOption(serverId, place, clean)) {
+                is TrackChange.Failed -> _events.send(TrackDetailEvent.Toast(result.message))
+                TrackChange.SignedOut -> Unit
+                else -> {
+                    awaitRoom { it.track?.options?.getOrNull(place - 1) == clean }
+                    _events.send(TrackDetailEvent.OptionRenamed)
+                }
+            }
+            busy.update { it.copy(renamingOption = null) }
+        }
+    }
+
+    fun setDecimalPlaces(places: Int) = changeSetting(
+        pending = { it.pendingDecimalPlaces },
+        mark = { it.copy(pendingDecimalPlaces = places) },
+        clear = { it.copy(pendingDecimalPlaces = null) },
+        change = { trackEditor.setDecimalPlaces(it, places) },
+        caughtUp = { it.decimalPlaces == places },
+    )
+
+    fun setAllowNegative(allow: Boolean) = changeSetting(
+        pending = { it.pendingAllowNegative },
+        mark = { it.copy(pendingAllowNegative = allow) },
+        clear = { it.copy(pendingAllowNegative = null) },
+        change = { trackEditor.setAllowNegative(it, allow) },
+        caughtUp = { it.allowNegative == allow },
+    )
+
+    fun setOrderedScale(ordered: Boolean) = changeSetting(
+        pending = { it.pendingOrderedScale },
+        mark = { it.copy(pendingOrderedScale = ordered) },
+        clear = { it.copy(pendingOrderedScale = null) },
+        change = { trackEditor.setOrderedScale(it, ordered) },
+        caughtUp = { it.orderedScale == ordered },
+    )
+
+    /**
+     * A setting saved at once, as Private: the new state shows straight away, disabled, until the
+     * server answers; on failure the old one comes back (Room still has it) with the toast. One
+     * change at a time per setting.
+     */
+    private fun changeSetting(
+        pending: (TypeSettingsState) -> Any?,
+        mark: (TypeSettingsState) -> TypeSettingsState,
+        clear: (TypeSettingsState) -> TypeSettingsState,
+        change: suspend (serverId: Long) -> TrackChange,
+        caughtUp: (Track) -> Boolean,
+    ) {
+        val serverId = state.value.track?.serverId ?: return
+        if (pending(busy.value.type) != null || !online.value) return
+        busy.update { it.copy(type = mark(it.type)) }
+        viewModelScope.launch {
+            when (val result = change(serverId)) {
+                is TrackChange.Failed -> _events.send(TrackDetailEvent.Toast(result.message))
+                TrackChange.SignedOut -> Unit
+                else -> awaitRoom { s -> s.track?.let(caughtUp) == true }
+            }
+            busy.update { it.copy(type = clear(it.type)) }
         }
     }
 

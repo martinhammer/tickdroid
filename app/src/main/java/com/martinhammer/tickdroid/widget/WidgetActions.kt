@@ -1,6 +1,8 @@
 package com.martinhammer.tickdroid.widget
 
 import android.content.Context
+import android.content.Intent
+import androidx.core.net.toUri
 import android.widget.Toast
 import androidx.glance.GlanceId
 import androidx.glance.action.Action
@@ -8,6 +10,7 @@ import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
+import androidx.glance.appwidget.action.actionStartActivity
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import kotlinx.coroutines.Dispatchers
@@ -22,17 +25,28 @@ internal val KeyDelta = ActionParameters.Key<Int>("delta")
 internal val KeyTrackName = ActionParameters.Key<String>("trackName")
 
 /**
- * The tap action for a cell: toggle a yes/no track, or add 1 to a counter. A track of a type
- * this Tickdroid doesn't know is read-only: its tap only says an update is needed.
+ * The tap action for a cell: toggle a yes/no track, or add 1 to a counter. A Number or Choice
+ * track opens [ValueEntryActivity], a small window over the home screen, started directly by the
+ * widget (an [ActionCallback] that started it would be a trampoline, which Android 12 blocks). A
+ * track of a type this Tickdroid doesn't know is read-only: its tap only says an update is needed.
  */
-internal fun tickAction(row: WidgetRow, day: LocalDate): Action {
+internal fun tickAction(context: Context, row: WidgetRow, day: LocalDate): Action {
     val ids = arrayOf(KeyTrackServerId to row.serverId, KeyEpochDay to day.toEpochDay())
     return when (row.type) {
         TrackType.YesNo -> actionRunCallback<ToggleTickAction>(actionParametersOf(*ids))
         TrackType.Counter -> actionRunCallback<AdjustCounterAction>(actionParametersOf(*ids, KeyDelta to 1))
+        TrackType.Number, TrackType.Choice -> actionStartActivity(valueEntryIntent(context, row.serverId, day))
         is TrackType.Unknown -> actionRunCallback<ReadOnlyTapAction>(actionParametersOf(KeyTrackName to row.name))
     }
 }
+
+/** Opens [ValueEntryActivity] for a track and the day the widget was drawn for. */
+internal fun valueEntryIntent(context: Context, serverId: Long, day: LocalDate): Intent =
+    Intent(context, ValueEntryActivity::class.java)
+        .putExtra(EXTRA_ENTRY_TRACK_SERVER_ID, serverId)
+        .putExtra(EXTRA_ENTRY_EPOCH_DAY, day.toEpochDay())
+        .setData(valueEntryUri(serverId, day.toEpochDay()).toUri())
+        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
 
 class ToggleTickAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
@@ -78,7 +92,7 @@ private suspend fun handleTap(context: Context, parameters: ActionParameters, de
     updateAllWidgets(context)
     if (outcome == WidgetTickHandler.Outcome.StaleDay) {
         withContext(Dispatchers.Main) {
-            Toast.makeText(context, "New day: tap again to tick", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, StaleDayMessage, Toast.LENGTH_SHORT).show()
         }
     }
 }

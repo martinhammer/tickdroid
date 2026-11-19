@@ -10,8 +10,9 @@ import androidx.room.RoomDatabase
         TrackPrefsEntity::class,
         NoteEntity::class,
         TrackRunEntity::class,
+        TrackOptionEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class TickdroidDatabase : RoomDatabase() {
@@ -20,6 +21,7 @@ abstract class TickdroidDatabase : RoomDatabase() {
     abstract fun trackPrefsDao(): TrackPrefsDao
     abstract fun noteDao(): NoteDao
     abstract fun trackRunDao(): TrackRunDao
+    abstract fun trackOptionDao(): TrackOptionDao
 
     companion object {
         const val NAME = "tickdroid.db"

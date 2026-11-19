@@ -42,8 +42,16 @@ import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.martinhammer.tickdroid.MainActivity
 import com.martinhammer.tickdroid.R
+import com.martinhammer.tickdroid.domain.CellLabel
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.common.EmptyValueMark
+import com.martinhammer.tickdroid.ui.common.choiceShortLabel
+import com.martinhammer.tickdroid.ui.journal.PlaceCircleFraction
+import com.martinhammer.tickdroid.ui.journal.WidgetDigitAdvanceEm
+import com.martinhammer.tickdroid.ui.journal.compactFormatter
+import com.martinhammer.tickdroid.ui.journal.numberCellText
+import com.martinhammer.tickdroid.ui.journal.placeCellText
 import androidx.glance.color.ColorProvider as DayNightColorProvider
 
 // Shared by all three widget kinds so none of them can drift from the journal's TickCell.
@@ -112,12 +120,28 @@ private fun emptyCellColor(alpha: Float): ColorProvider {
     }
 }
 
+/** The faint "…" of an empty Number cell, as the dot's 35%: text can't take an alpha, the colour can. */
+@Composable
+private fun hintTextColor(): ColorProvider {
+    val context = LocalContext.current
+    return remember(context) {
+        DayNightColorProvider(
+            day = dynamicLightColorScheme(context).onSurfaceVariant.copy(alpha = HintAlpha),
+            night = dynamicDarkColorScheme(context).onSurfaceVariant.copy(alpha = HintAlpha),
+        )
+    }
+}
+
+private const val HintAlpha = 0.35f
+
 /**
  * The journal cell, as a widget draws it. [row] null draws the "?" tile of a Single track widget
  * with no track. Ticked: the track colour with ✓ or the value. Not ticked: the empty-cell colour
- * (at the background's strength, see [emptyCellAlpha]) with the faint dot (yes/no) or "0"
- * (counter). A track of a type this Tickdroid doesn't know
- * draws "?" when ticked and nothing otherwise.
+ * (at the background's strength, see [emptyCellAlpha]) with the faint dot (yes/no), "0"
+ * (counter), "…" (Number) or ▾ (Choice). A Number shows its value, stepped down in size as in
+ * the journal ([numberCellText]); a Choice its short label or its place in a circle. A track of a
+ * type this Tickdroid doesn't know draws "?" when ticked and nothing otherwise; a Number or
+ * Choice track waiting for its first sync draws nothing.
  */
 @Composable
 internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier = GlanceModifier) {
@@ -136,6 +160,9 @@ internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier 
     // titleMedium, as in TickCell. RemoteViews has no SemiBold and no tabular figures; Medium is
     // the nearest weight, and a cell only ever holds one number.
     val numberSize = if (size < 36.dp) 14.sp else 16.sp
+    val configuration = LocalContext.current.resources.configuration
+    val locale = configuration.locales[0]
+    val fontScale = configuration.fontScale
     Box(
         modifier = modifier.size(size).cornerRadius(12.dp).background(container),
         contentAlignment = Alignment.Center,
@@ -145,6 +172,48 @@ internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier 
             // A type from a newer Tickbuddy: "there is a value", and no "tap" hint when empty.
             row.type is TrackType.Unknown -> if (done) CellText("?", onContainer, numberSize)
             row.type == TrackType.Counter -> CellText(row.value.toString(), onContainer, numberSize)
+            row.awaitingSync && (row.type == TrackType.Number || row.type == TrackType.Choice) -> Unit
+            row.type == TrackType.Number && done -> {
+                val fitted = remember(row.value, row.decimalPlaces, size, fontScale, locale) {
+                    numberCellText(
+                        row.value,
+                        row.asTrack().places,
+                        size.value,
+                        fontScale,
+                        locale,
+                        compactFormatter(locale),
+                        WidgetDigitAdvanceEm,
+                    )
+                }
+                CellText(fitted.text, onContainer, fitted.sizeSp.sp)
+            }
+            row.type == TrackType.Choice && done -> {
+                val label = row.options.getOrNull(row.value - 1)
+                if (row.cellLabel == CellLabel.Place || label == null) {
+                    val circle = size * PlaceCircleFraction
+                    val fitted = placeCellText(row.value, circle.value, fontScale, WidgetDigitAdvanceEm)
+                    Box(modifier = GlanceModifier.size(circle), contentAlignment = Alignment.Center) {
+                        Image(
+                            provider = ImageProvider(R.drawable.ic_widget_circle),
+                            contentDescription = null,
+                            alpha = 0.16f,
+                            colorFilter = ColorFilter.tint(onContainer),
+                            modifier = GlanceModifier.fillMaxSize(),
+                        )
+                        CellText(fitted.text, onContainer, fitted.sizeSp.sp)
+                    }
+                } else {
+                    CellText(choiceShortLabel(label), onContainer, numberSize)
+                }
+            }
+            row.type == TrackType.Number -> CellText(EmptyValueMark, hintTextColor(), (size.value * 0.4f).sp)
+            row.type == TrackType.Choice -> Image(
+                provider = ImageProvider(R.drawable.ic_widget_arrow_drop_down),
+                contentDescription = null,
+                alpha = HintAlpha,
+                colorFilter = ColorFilter.tint(onContainer),
+                modifier = GlanceModifier.size(size * 0.5f),
+            )
             done -> Image(
                 provider = ImageProvider(R.drawable.ic_widget_check),
                 contentDescription = null,
@@ -154,7 +223,7 @@ internal fun WidgetTickCell(row: WidgetRow?, size: Dp, modifier: GlanceModifier 
             else -> Image(
                 provider = ImageProvider(R.drawable.ic_widget_dot),
                 contentDescription = null,
-                alpha = 0.35f,
+                alpha = HintAlpha,
                 colorFilter = ColorFilter.tint(onContainer),
                 modifier = GlanceModifier.size(size * 0.5f),
             )

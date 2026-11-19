@@ -20,6 +20,7 @@ import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackRun
+import com.martinhammer.tickdroid.ui.entry.EntryTarget
 import com.martinhammer.tickdroid.ui.journal.SyncIssue
 import com.martinhammer.tickdroid.ui.journal.computeSyncIssue
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -59,6 +60,8 @@ data class TodayUiState(
     /** A day label in the Journal opened this day: Back returns to the Journal. */
     val fromJournal: Boolean = false,
     val editing: NoteTarget? = null,
+    /** The Number or Choice day being entered. Never open together with [editing]. */
+    val entry: EntryTarget? = null,
     val loaded: Boolean = false,
 ) {
     fun isEditable(date: LocalDate): Boolean = editableDays.isEditable(date, today)
@@ -100,6 +103,12 @@ class TodayViewModel @Inject constructor(
     private val _editing = MutableStateFlow(
         savedStateHandle.get<Long>(KEY_EDIT_TRACK)?.let { track ->
             savedStateHandle.get<Long>(KEY_EDIT_DAY)?.let { NoteTarget(track, LocalDate.ofEpochDay(it)) }
+        },
+    )
+
+    private val _entry = MutableStateFlow(
+        savedStateHandle.get<Long>(KEY_ENTRY_TRACK)?.let { track ->
+            savedStateHandle.get<Long>(KEY_ENTRY_DAY)?.let { EntryTarget(track, LocalDate.ofEpochDay(it)) }
         },
     )
 
@@ -161,10 +170,11 @@ class TodayViewModel @Inject constructor(
         val day: LocalDate,
         val fromJournal: Boolean,
         val editing: NoteTarget?,
+        val entry: EntryTarget?,
     )
 
-    private val position = combine(_today, _day, _fromJournal, _editing) { today, day, fromJournal, editing ->
-        Position(today, day, fromJournal, editing)
+    private val position = combine(_today, _day, _fromJournal, _editing, _entry) { today, day, fromJournal, editing, entry ->
+        Position(today, day, fromJournal, editing, entry)
     }
 
     val state: StateFlow<TodayUiState> = combine(content, settings, sync, position) { c, s, (pull, issue), p ->
@@ -184,12 +194,13 @@ class TodayViewModel @Inject constructor(
             statsSupported = s.statsSupported,
             fromJournal = p.fromJournal,
             editing = p.editing,
+            entry = p.entry,
             loaded = true,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = TodayUiState(today = _today.value, day = _day.value, editing = _editing.value),
+        initialValue = TodayUiState(today = _today.value, day = _day.value, editing = _editing.value, entry = _entry.value),
     )
 
     init {
@@ -267,7 +278,23 @@ class TodayViewModel @Inject constructor(
         val day = _day.value
         if (!serverFeatures.notes.value) return
         if (!uiPreferences.editableDays.value.isEditable(day, _today.value)) return
+        setEntry(null)
         setEditing(NoteTarget(trackLocalId, day))
+    }
+
+    /** Opens the Number card or the Choice sheet for [trackLocalId] on the day shown (editable only). */
+    fun openEntry(trackLocalId: Long) {
+        val day = _day.value
+        if (!uiPreferences.editableDays.value.isEditable(day, _today.value)) return
+        setEditing(null)
+        setEntry(EntryTarget(trackLocalId, day))
+    }
+
+    fun closeEntry() = setEntry(null)
+
+    /** A Number's thousandths or a Choice's place, null to clear; the repository is uncancellable. */
+    fun saveValue(target: EntryTarget, value: Int?) {
+        viewModelScope.launch { tickRepository.setValue(target.trackLocalId, target.date, value) }
     }
 
     fun closeNote() = setEditing(null)
@@ -293,12 +320,20 @@ class TodayViewModel @Inject constructor(
         savedStateHandle[KEY_EDIT_DAY] = target?.date?.toEpochDay()
     }
 
+    private fun setEntry(target: EntryTarget?) {
+        _entry.value = target
+        savedStateHandle[KEY_ENTRY_TRACK] = target?.trackLocalId
+        savedStateHandle[KEY_ENTRY_DAY] = target?.date?.toEpochDay()
+    }
+
     private companion object {
         const val WINDOW_DAYS = 30L
         const val KEY_DAY = "day"
         const val KEY_FROM_JOURNAL = "fromJournal"
         const val KEY_EDIT_TRACK = "editTrack"
         const val KEY_EDIT_DAY = "editDay"
+        const val KEY_ENTRY_TRACK = "entryTrack"
+        const val KEY_ENTRY_DAY = "entryDay"
     }
 }
 

@@ -76,6 +76,7 @@ class TracksDownGridTest {
                         onLoadOlder = {},
                         onToggleBoolean = onToggle,
                         onAdjustCounter = { _, _, _ -> },
+                        onOpenEntry = { _, _ -> },
                     )
                 }
             }
@@ -249,6 +250,7 @@ class TracksDownGridTest {
                         },
                         onToggleBoolean = { _, _ -> },
                         onAdjustCounter = { _, _, _ -> },
+                        onOpenEntry = { _, _ -> },
                     )
                 }
             }

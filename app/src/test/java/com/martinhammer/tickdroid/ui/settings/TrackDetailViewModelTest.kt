@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui.settings
 
+import com.martinhammer.tickdroid.domain.CellLabel
 import androidx.lifecycle.SavedStateHandle
 import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
@@ -213,5 +214,98 @@ class TrackDetailViewModelTest {
         val h = harness()
         h.vm.archive()
         coVerify(exactly = 0) { editor.archive(any()) }
+    }
+
+    // Number and Choice settings.
+
+    private val run = track.copy(type = TrackType.Number, unit = "km", decimalPlaces = 1, allowNegative = false)
+    private val mood = track.copy(type = TrackType.Choice, options = listOf("Happy", "Sad"), orderedScale = false)
+
+    @Test fun `decimal places show the new value while saving, and revert on failure`() = runTest {
+        tracks.value = listOf(run)
+        val answer = CompletableDeferred<TrackChange>()
+        coEvery { editor.setDecimalPlaces(10, 2) } coAnswers { answer.await() }
+        val h = harness()
+        h.vm.setDecimalPlaces(2)
+        assertEquals(2, h.vm.state.value.typeSettings.pendingDecimalPlaces)
+        // One change at a time per setting.
+        h.vm.setDecimalPlaces(3)
+        coVerify(exactly = 0) { editor.setDecimalPlaces(10, 3) }
+        answer.complete(TrackChange.Failed("Nope"))
+        assertNull(h.vm.state.value.typeSettings.pendingDecimalPlaces)
+        assertEquals(1, h.vm.state.value.track?.decimalPlaces)
+        assertEquals(listOf(TrackDetailEvent.Toast("Nope")), h.events)
+    }
+
+    @Test fun `allow negative and ordered scale clear their pending state once Room has them`() = runTest {
+        tracks.value = listOf(run)
+        coEvery { editor.setAllowNegative(10, true) } coAnswers {
+            tracks.value = listOf(run.copy(allowNegative = true))
+            TrackChange.Done
+        }
+        val h = harness()
+        h.vm.setAllowNegative(true)
+        assertNull(h.vm.state.value.typeSettings.pendingAllowNegative)
+        assertEquals(true, h.vm.state.value.track?.allowNegative)
+
+        tracks.value = listOf(mood)
+        coEvery { editor.setOrderedScale(10, true) } coAnswers {
+            tracks.value = listOf(mood.copy(orderedScale = true))
+            TrackChange.Done
+        }
+        h.vm.setOrderedScale(true)
+        assertNull(h.vm.state.value.typeSettings.pendingOrderedScale)
+        assertTrue(h.events.isEmpty())
+    }
+
+    @Test fun `change unit closes once saved, an unchanged unit without a call, a failure keeps it open`() = runTest {
+        tracks.value = listOf(run)
+        coEvery { editor.setUnit(10, "") } coAnswers {
+            tracks.value = listOf(run.copy(unit = ""))
+            TrackChange.Done
+        }
+        coEvery { editor.setUnit(10, "mi") } returns TrackChange.Failed("Units can be at most 255 characters")
+        val h = harness()
+        h.vm.setUnit(" km ")
+        h.vm.setUnit("  ")
+        h.vm.setUnit("mi")
+        assertEquals(
+            listOf(
+                TrackDetailEvent.UnitDone,
+                TrackDetailEvent.UnitDone,
+                TrackDetailEvent.Toast("Units can be at most 255 characters"),
+            ),
+            h.events,
+        )
+        coVerify(exactly = 0) { editor.setUnit(10, "km") }
+        assertEquals(false, h.vm.state.value.savingUnit)
+    }
+
+    @Test fun `rename option sends the place and closes once Room has it`() = runTest {
+        tracks.value = listOf(mood)
+        coEvery { editor.renameOption(10, 2, "Glum") } coAnswers {
+            tracks.value = listOf(mood.copy(options = listOf("Happy", "Glum")))
+            TrackChange.Done
+        }
+        coEvery { editor.renameOption(10, 1, "Sad") } returns TrackChange.Failed("Two options can't have the same label: \"Sad\"")
+        val h = harness()
+        h.vm.renameOption(2, " Glum ")
+        h.vm.renameOption(1, "Sad")
+        assertEquals(
+            listOf(TrackDetailEvent.OptionRenamed, TrackDetailEvent.Toast("Two options can't have the same label: \"Sad\"")),
+            h.events,
+        )
+        assertNull(h.vm.state.value.renamingOption)
+    }
+
+    @Test fun `Journal cells is kept on the phone and works offline`() = runTest {
+        tracks.value = listOf(mood)
+        online.value = false
+        coEvery { prefsRepository.setCellLabel(10, CellLabel.Place) } returns Unit
+        val h = harness()
+        h.vm.setCellLabel(CellLabel.Place)
+        h.vm.setOrderedScale(true)
+        coVerify { prefsRepository.setCellLabel(10, CellLabel.Place) }
+        coVerify(exactly = 0) { editor.setOrderedScale(any(), any()) }
     }
 }

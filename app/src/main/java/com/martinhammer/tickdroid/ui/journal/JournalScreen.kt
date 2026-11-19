@@ -92,6 +92,8 @@ import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.ui.entry.EntryTarget
+import com.martinhammer.tickdroid.ui.entry.ValueEntryLayer
 import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
 import com.martinhammer.tickdroid.ui.common.updateRequiredToast
 import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
@@ -139,84 +141,132 @@ fun JournalScreen(
     // Refresh on resume so today rolls over (and pull catches changes from other devices).
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.refresh() }
 
-    Scaffold(
-        modifier = if (compactHeight) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        topBar = {
-            val title: @Composable () -> Unit = { Text("Journal") }
-            val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
-                SyncIssueChip(state.syncIssue)
-                SyncIndicator(state.syncStatus)
-                IconButton(onClick = { showHelp = true }) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
-                        contentDescription = "Help",
+    Box(Modifier.fillMaxSize()) {
+        Scaffold(
+            modifier = if (compactHeight) Modifier else Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            topBar = {
+                val title: @Composable () -> Unit = { Text("Journal") }
+                val actions: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit = {
+                    SyncIssueChip(state.syncIssue)
+                    SyncIndicator(state.syncStatus)
+                    IconButton(onClick = { showHelp = true }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Outlined.HelpOutline,
+                            contentDescription = "Help",
+                        )
+                    }
+                    OverflowMenu(
+                        onOpenAccount = onOpenAccount,
+                        onOpenAppSettings = onOpenAppSettings,
+                        onOpenTracksSettings = onOpenTracksSettings,
+                        onOpenAbout = onOpenAbout,
                     )
                 }
-                OverflowMenu(
-                    onOpenAccount = onOpenAccount,
-                    onOpenAppSettings = onOpenAppSettings,
-                    onOpenTracksSettings = onOpenTracksSettings,
-                    onOpenAbout = onOpenAbout,
-                )
-            }
-            if (compactHeight) {
-                TopAppBar(title = title, actions = actions)
-            } else {
-                LargeTopAppBar(
-                    title = title,
-                    actions = actions,
-                    scrollBehavior = scrollBehavior,
-                )
-            }
-        },
-        bottomBar = { MainNavigationBar(
-                selected = MainTab.Journal,
-                onToday = { onOpenToday(state.window.today) },
-                onJournal = {},
-            ) },
-    ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = state.syncStatus is SyncStatus.Syncing,
-            onRefresh = { viewModel.refresh() },
-            // consumeWindowInsets: the Scaffold padding already covers system bars *and* the
-            // display cutout, so mark them consumed; otherwise the grids' own insets padding
-            // adds the cutout a second time (a wide empty strip beside the camera in landscape).
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .consumeWindowInsets(padding),
-        ) {
-            when (state.layout) {
-                JournalLayout.DAYS_DOWN -> JournalGrid(
-                    state = state,
-                    onLoadOlder = { viewModel.loadOlder() },
-                    onToggleBoolean = viewModel::toggleBoolean,
-                    onAdjustCounter = viewModel::adjustCounter,
-                    onOpenDay = onOpenDay,
-                    // A programmatic scroll doesn't go through nested scroll, so the collapsed
-                    // LargeTopAppBar wouldn't notice the list is back at the top: expand it
-                    // explicitly. (Tracks down's chip pages sideways, so it has nothing to undo.)
-                    onJumpToToday = {
-                        scope.launch {
-                            val barState = scrollBehavior.state
-                            animate(barState.heightOffset, 0f) { value, _ -> barState.heightOffset = value }
-                            barState.contentOffset = 0f
-                        }
-                    },
-                )
-                JournalLayout.TRACKS_DOWN -> TracksDownGrid(
-                    state = state,
-                    onLoadOlder = { viewModel.loadOlder() },
-                    onToggleBoolean = viewModel::toggleBoolean,
-                    onAdjustCounter = viewModel::adjustCounter,
-                    onOpenDay = onOpenDay,
-                )
+                if (compactHeight) {
+                    TopAppBar(title = title, actions = actions)
+                } else {
+                    LargeTopAppBar(
+                        title = title,
+                        actions = actions,
+                        scrollBehavior = scrollBehavior,
+                    )
+                }
+            },
+            bottomBar = { MainNavigationBar(
+                    selected = MainTab.Journal,
+                    onToday = { onOpenToday(state.window.today) },
+                    onJournal = {},
+                ) },
+        ) { padding ->
+            PullToRefreshBox(
+                isRefreshing = state.syncStatus is SyncStatus.Syncing,
+                onRefresh = { viewModel.refresh() },
+                // consumeWindowInsets: the Scaffold padding already covers system bars *and* the
+                // display cutout, so mark them consumed; otherwise the grids' own insets padding
+                // adds the cutout a second time (a wide empty strip beside the camera in landscape).
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .consumeWindowInsets(padding),
+            ) {
+                when (state.layout) {
+                    JournalLayout.DAYS_DOWN -> JournalGrid(
+                        state = state,
+                        onLoadOlder = { viewModel.loadOlder() },
+                        onToggleBoolean = viewModel::toggleBoolean,
+                        onAdjustCounter = viewModel::adjustCounter,
+                        onOpenEntry = viewModel::openEntry,
+                        onOpenDay = onOpenDay,
+                        // A programmatic scroll doesn't go through nested scroll, so the collapsed
+                        // LargeTopAppBar wouldn't notice the list is back at the top: expand it
+                        // explicitly. (Tracks down's chip pages sideways, so it has nothing to undo.)
+                        onJumpToToday = {
+                            scope.launch {
+                                val barState = scrollBehavior.state
+                                animate(barState.heightOffset, 0f) { value, _ -> barState.heightOffset = value }
+                                barState.contentOffset = 0f
+                            }
+                        },
+                    )
+                    JournalLayout.TRACKS_DOWN -> TracksDownGrid(
+                        state = state,
+                        onLoadOlder = { viewModel.loadOlder() },
+                        onToggleBoolean = viewModel::toggleBoolean,
+                        onAdjustCounter = viewModel::adjustCounter,
+                        onOpenEntry = viewModel::openEntry,
+                        onOpenDay = onOpenDay,
+                    )
+                }
             }
         }
+
+        // Over everything, as Today's note card: while it is open the grid doesn't take taps.
+        EntryLayer(
+            entry = state.entry,
+            tracks = state.tracks,
+            loaded = state.loaded,
+            trackPrefs = state.trackPrefs,
+            ticks = state.ticks,
+            today = state.window.today,
+            onSave = viewModel::saveValue,
+            onClose = viewModel::closeEntry,
+        )
     }
 
     if (showHelp) {
         HelpSheet(journalHelpParagraphs(notes = state.notesSupported), onDismiss = { showHelp = false })
+    }
+}
+
+/**
+ * The Number card or Choice sheet for [entry], if one is open, on the Journal and Today. Closes
+ * itself when the track has gone (deleted elsewhere, made hidden) or is waiting for its sync.
+ */
+@Composable
+internal fun EntryLayer(
+    entry: EntryTarget?,
+    tracks: List<Track>,
+    loaded: Boolean,
+    trackPrefs: Map<Long, TrackPrefs>,
+    ticks: Map<TickKey, Tick>,
+    today: LocalDate,
+    onSave: (EntryTarget, Int?) -> Unit,
+    onClose: () -> Unit,
+) {
+    if (entry == null) return
+    val track = tracks.firstOrNull { it.localId == entry.trackLocalId }?.takeIf { it.entersValue && it.isEditableType }
+    if (track != null) {
+        ValueEntryLayer(
+            track = track,
+            prefs = track.serverId?.let { trackPrefs[it] } ?: TrackPrefs(),
+            date = entry.date,
+            today = today,
+            current = ticks[TickKey(entry.trackLocalId, entry.date)],
+            onSave = { onSave(entry, it) },
+            onClose = onClose,
+        )
+    } else if (loaded) {
+        LaunchedEffect(entry) { onClose() }
     }
 }
 
@@ -264,6 +314,7 @@ private fun JournalGrid(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenEntry: (trackLocalId: Long, date: LocalDate) -> Unit,
     onOpenDay: (LocalDate) -> Unit,
     onJumpToToday: () -> Unit,
 ) {
@@ -322,6 +373,7 @@ private fun JournalGrid(
                         editableDays = state.editableDays,
                         onToggleBoolean = onToggleBoolean,
                         onAdjustCounter = onAdjustCounter,
+                        onOpenEntry = onOpenEntry,
                         onOpenDay = onOpenDay,
                     )
                 }
@@ -411,6 +463,7 @@ private fun DayRow(
     editableDays: EditableDays,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenEntry: (trackLocalId: Long, date: LocalDate) -> Unit,
     onOpenDay: (LocalDate) -> Unit,
 ) {
     val editable = editableDays.isEditable(day, today)
@@ -446,6 +499,7 @@ private fun DayRow(
                     editable = editable,
                     onToggleBoolean = { onToggleBoolean(track.localId, day) },
                     onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
+                    onOpenEntry = { onOpenEntry(track.localId, day) },
                     hasNote = TickKey(track.localId, day) in noteKeys,
                 )
             }

@@ -46,7 +46,8 @@ internal const val HelpTitle = "How to use Tickdroid"
 private const val TracksSentence =
     "Add and manage tracks in Tracks settings. They're shared with Tickbuddy on your Nextcloud."
 private const val CellsSentence =
-    "Tap a cell to toggle a yes/no value or increment a counter; long-press to decrement a counter value."
+    "Tap a cell to toggle a yes/no value, increment a counter, or enter a number or choice; " +
+        "long-press to decrement a counter value."
 private const val SettingsSentence =
     "Editable days, show/hide private tracks, and UI options are configured in App settings."
 private const val ColoursSentence =

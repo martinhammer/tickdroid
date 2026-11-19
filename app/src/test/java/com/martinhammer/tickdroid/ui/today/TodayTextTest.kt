@@ -1,5 +1,8 @@
 package com.martinhammer.tickdroid.ui.today
 
+import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.domain.Tick
+import com.martinhammer.tickdroid.domain.Track
 import androidx.compose.ui.graphics.Color
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackRun
@@ -74,5 +77,54 @@ class TodayTextTest {
         assertEquals(primary, squareColour("no-such-colour", dark = false, primary = primary))
         assertEquals(TrackColor.BLUE.container, squareColour("blue", dark = true, primary = primary))
         assertEquals(TrackColor.BLUE.strong, squareColour("blue", dark = false, primary = primary))
+    }
+
+    // Server spec row 13's levels for Number and ordered-scale Choice tracks.
+
+    @Test fun `valueLevel spreads a range over 1 to 4, the lowest reading included`() {
+        assertEquals(1, valueLevel(1, 1, 4))
+        assertEquals(2, valueLevel(2, 1, 4))
+        assertEquals(3, valueLevel(3, 1, 4))
+        assertEquals(4, valueLevel(4, 1, 4))
+        // A reading of 0 and a negative one are entries.
+        assertEquals(1, valueLevel(-1500, -1500, 10400))
+        assertEquals(1, valueLevel(0, 0, 10000))
+        assertEquals(2, valueLevel(5000, 0, 10000))
+    }
+
+    @Test fun `valueLevel is 2 with no range and 0 with no entry`() {
+        assertEquals(2, valueLevel(5, 5, 5))
+        assertEquals(2, valueLevel(5, null, 10))
+        assertEquals(2, valueLevel(5, 1, null))
+        assertEquals(0, valueLevel(null, 1, 4))
+        // Stats a little stale: clamped, never outside 1 to 4.
+        assertEquals(4, valueLevel(20, 1, 4))
+        assertEquals(1, valueLevel(-3, 1, 4))
+    }
+
+    private fun track(type: TrackType, ordered: Boolean? = null, options: List<String> = emptyList()) =
+        Track(1, 1, "T", type, 0, false, options = options, orderedScale = ordered)
+
+    private val day = java.time.LocalDate.of(2026, 11, 18)
+    private fun tick(value: Int) = Tick(1, day, value)
+
+    @Test fun `squareLevel per type`() {
+        val run = TrackRun(isStreak = true, length = 1, upToYesterday = false, maxValue = 10400, minValue = -1500)
+        assertEquals(1, squareLevel(track(TrackType.Number), tick(-1500), run))
+        assertEquals(4, squareLevel(track(TrackType.Number), tick(10400), run))
+        assertEquals(0, squareLevel(track(TrackType.Number), null, run))
+        assertEquals(2, squareLevel(track(TrackType.Number), tick(0), null))
+        val scale = track(TrackType.Choice, ordered = true, options = listOf("a", "b", "c", "d"))
+        assertEquals(1, squareLevel(scale, tick(1), null))
+        assertEquals(4, squareLevel(scale, tick(4), null))
+        val ofEleven = track(TrackType.Choice, ordered = true, options = List(11) { "$it" })
+        assertEquals(2, squareLevel(ofEleven, tick(4), null))
+        val ofTwo = track(TrackType.Choice, ordered = true, options = listOf("no", "yes"))
+        assertEquals(4, squareLevel(ofTwo, tick(2), null))
+        assertEquals(2, squareLevel(track(TrackType.Choice, ordered = false, options = listOf("a", "b")), tick(1), null))
+        // Unchanged for yes/no and counters.
+        assertEquals(2, squareLevel(track(TrackType.YesNo), tick(1), null))
+        assertEquals(0, squareLevel(track(TrackType.YesNo), null, null))
+        assertEquals(3, squareLevel(track(TrackType.Counter), tick(3), null))
     }
 }

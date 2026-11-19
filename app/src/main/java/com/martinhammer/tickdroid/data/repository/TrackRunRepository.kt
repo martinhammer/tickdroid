@@ -20,6 +20,7 @@ class TrackRunRepository @Inject constructor(private val trackRunDao: TrackRunDa
                     length = it.length,
                     upToYesterday = it.upToYesterday,
                     maxValue = it.maxValue,
+                    minValue = it.minValue,
                 )
             }
         }

@@ -51,3 +51,37 @@ internal val MIGRATION_4_5 = object : Migration(4, 5) {
         )
     }
 }
+
+/**
+ * v5 → v6: Number and Choice tracks. New nullable columns for their settings, a NOT NULL
+ * `awaitingSync` with a default, `track_options`, `track_prefs.cellLabel` and
+ * `track_runs.minValue`; the SQL for the table is copied from `app/schemas/…/6.json`.
+ *
+ * Unlike the earlier migrations it also changes data, once, before anything reads it: the ticks
+ * of every `number` and `choice` track are only 1.5.0's 1/0 markers (it read those types
+ * leniently), so they are deleted, and those tracks wait for their first successful pull before
+ * they can be written (groundwork §9: an update opened offline would otherwise show empty past
+ * days and could overwrite the server's value). None of the markers is dirty: 1.5.0 never wrote
+ * such a track. Notes are kept: 1.5.0 read and wrote them correctly.
+ */
+internal val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE tracks ADD COLUMN unit TEXT")
+        db.execSQL("ALTER TABLE tracks ADD COLUMN decimalPlaces INTEGER")
+        db.execSQL("ALTER TABLE tracks ADD COLUMN allowNegative INTEGER")
+        db.execSQL("ALTER TABLE tracks ADD COLUMN orderedScale INTEGER")
+        db.execSQL("ALTER TABLE tracks ADD COLUMN awaitingSync INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE track_prefs ADD COLUMN cellLabel TEXT")
+        db.execSQL("ALTER TABLE track_runs ADD COLUMN minValue INTEGER")
+        db.execSQL(TRACK_OPTIONS_SQL)
+        db.execSQL("UPDATE tracks SET awaitingSync = 1 WHERE type IN ('number', 'choice')")
+        db.execSQL(
+            "DELETE FROM ticks WHERE trackLocalId IN (SELECT localId FROM tracks WHERE type IN ('number', 'choice'))",
+        )
+    }
+}
+
+private const val TRACK_OPTIONS_SQL =
+    "CREATE TABLE IF NOT EXISTS `track_options` (`trackLocalId` INTEGER NOT NULL, `place` INTEGER NOT NULL, " +
+        "`label` TEXT NOT NULL, PRIMARY KEY(`trackLocalId`, `place`), FOREIGN KEY(`trackLocalId`) " +
+        "REFERENCES `tracks`(`localId`) ON UPDATE NO ACTION ON DELETE CASCADE )"

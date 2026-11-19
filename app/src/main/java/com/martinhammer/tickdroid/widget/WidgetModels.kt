@@ -4,14 +4,21 @@ import com.martinhammer.tickdroid.data.repository.TickKey
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
+import com.martinhammer.tickdroid.domain.CellLabel
 import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.updateRequiredDescription
+import com.martinhammer.tickdroid.ui.common.valueDescription
 import java.time.LocalDate
+import java.util.Locale
 
 // Pure, Compose-free models and layout maths for the home-screen widgets. JVM-tested
 // (WidgetModelsTest); the Glance code only draws what these return.
 
-/** One track as a widget shows it: today's value plus the user's emoji / colour overrides. */
+/**
+ * One track as a widget shows it: today's value plus the user's emoji / colour overrides, and a
+ * Number's or Choice's settings. [hasRow]: today has a tick row (for Number and Choice, an entry:
+ * 0 and negative Numbers count).
+ */
 internal data class WidgetRow(
     val serverId: Long,
     val name: String,
@@ -19,9 +26,36 @@ internal data class WidgetRow(
     val value: Int,
     val emoji: String?,
     val colorKey: String?,
+    val hasRow: Boolean = value > 0,
+    val unit: String? = null,
+    val decimalPlaces: Int? = null,
+    val options: List<String> = emptyList(),
+    val cellLabel: CellLabel? = null,
+    val awaitingSync: Boolean = false,
 ) {
-    /** Drives the cell colour: ticked yes/no, or a counter above 0. */
-    val done: Boolean get() = value > 0
+    /**
+     * Drives the cell colour: ticked yes/no, a counter above 0, a Number or Choice with an entry
+     * (empty while the track waits for its first sync).
+     */
+    val done: Boolean
+        get() = when (type) {
+            TrackType.Number, TrackType.Choice -> hasRow && !awaitingSync
+            else -> value > 0
+        }
+
+    /** The track as the shared Number and Choice texts need it. */
+    fun asTrack(): Track = Track(
+        localId = 0,
+        serverId = serverId,
+        name = name,
+        type = type,
+        sortOrder = 0,
+        private = false,
+        unit = unit,
+        decimalPlaces = decimalPlaces,
+        options = options,
+        awaitingSync = awaitingSync,
+    )
 }
 
 /** Today list and Today row. */
@@ -130,13 +164,20 @@ private fun Track.toWidgetRow(
 ): WidgetRow {
     val serverId = requireNotNull(serverId) { "widget rows need a server id" }
     val trackPrefs = prefs[serverId]
+    val tick = ticks[TickKey(localId, today)]
     return WidgetRow(
         serverId = serverId,
         name = name,
         type = type,
-        value = ticks[TickKey(localId, today)]?.value ?: 0,
+        value = tick?.value ?: 0,
         emoji = trackPrefs?.emoji,
         colorKey = trackPrefs?.colorKey,
+        hasRow = tick != null,
+        unit = unit,
+        decimalPlaces = decimalPlaces,
+        options = options,
+        cellLabel = trackPrefs?.cellLabel,
+        awaitingSync = awaitingSync,
     )
 }
 
@@ -144,8 +185,12 @@ private fun Track.toWidgetRow(
 internal fun abbreviation(name: String): String = name.take(2).uppercase()
 
 /** TalkBack text for a cell. The list adds a hint, since there the whole row is the button. */
-internal fun cellDescription(row: WidgetRow, tapHint: Boolean = false): String {
+internal fun cellDescription(row: WidgetRow, tapHint: Boolean = false, locale: Locale = Locale.getDefault()): String {
     if (row.type is TrackType.Unknown) return updateRequiredDescription(row.name)
+    // T24, as in the app: the full value, unit and label, whatever the cell has room for.
+    if (row.type == TrackType.Number || row.type == TrackType.Choice) {
+        return valueDescription(row.asTrack(), if (row.done) row.value else null, locale)
+    }
     val state = when {
         row.type == TrackType.Counter -> row.value.toString()
         row.done -> "done"
@@ -193,3 +238,9 @@ internal fun rowMetrics(heightDp: Float): RowMetrics =
     // Label 24 + gap 4 + cell 36 = 64dp; some launchers' one-row height is less than that.
     if (heightDp >= 64f) RowMetrics(cellDp = 36, labelDp = 24, gapDp = 4)
     else RowMetrics(cellDp = 32, labelDp = 20, gapDp = 2)
+
+/**
+ * The data URI of a Number or Choice cell's tap, unique per track and day: intents that differ
+ * only in their extras would share one PendingIntent, so every cell would open the same track.
+ */
+internal fun valueEntryUri(serverId: Long, epochDay: Long): String = "tickdroid://entry/$serverId/$epochDay"

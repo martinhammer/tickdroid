@@ -6,7 +6,8 @@ import org.junit.Test
 class HelpSheetTest {
 
     private val tracks = "Add and manage tracks in Tracks settings. They're shared with Tickbuddy on your Nextcloud."
-    private val cells = "Tap a cell to toggle a yes/no value or increment a counter; long-press to decrement a counter value."
+    private val cells = "Tap a cell to toggle a yes/no value, increment a counter, or enter a number or choice; " +
+        "long-press to decrement a counter value."
     private val settings = "Editable days, show/hide private tracks, and UI options are configured in App settings."
     private val colours = "Custom track colours and heading icons can be configured in Tracks settings."
 

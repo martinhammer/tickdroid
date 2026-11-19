@@ -49,4 +49,12 @@ class ServerFeaturesTest {
             assertFalse(name, flag(TickbuddyCapability(features = mapOf(name to false))))
         }
     }
+
+    @Test fun `the Number and Choice flags are true only when the flag is true`() {
+        assertTrue(numberTracksFlag(TickbuddyCapability(features = mapOf("numberTracks" to true))))
+        assertTrue(choiceTracksFlag(TickbuddyCapability(features = mapOf("choiceTracks" to true))))
+        assertFalse(numberTracksFlag(TickbuddyCapability(features = mapOf("choiceTracks" to true))))
+        assertFalse(choiceTracksFlag(null))
+        assertFalse(numberTracksFlag(TickbuddyCapability(features = mapOf("numberTracks" to false))))
+    }
 }

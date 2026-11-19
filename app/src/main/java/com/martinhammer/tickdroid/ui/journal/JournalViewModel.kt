@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui.journal
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.martinhammer.tickdroid.data.prefs.EditableDays
@@ -21,6 +22,7 @@ import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
+import com.martinhammer.tickdroid.ui.entry.EntryTarget
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -55,11 +57,14 @@ data class JournalUiState(
     /** Days with a note, for the cells' dot. Empty without the server's `notes` flag. */
     val noteKeys: Set<TickKey> = emptySet(),
     val notesSupported: Boolean = false,
+    /** The Number or Choice day being entered (the card or the sheet is open). */
+    val entry: EntryTarget? = null,
 )
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class JournalViewModel @Inject constructor(
+    private val savedStateHandle: SavedStateHandle,
     private val trackRepository: TrackRepository,
     private val tickRepository: TickRepository,
     noteRepository: NoteRepository,
@@ -72,6 +77,13 @@ class JournalViewModel @Inject constructor(
 ) : ViewModel() {
 
     private val initialToday = clock.today()
+
+    // In the SavedStateHandle, as Today's note: the card survives rotation and process restore.
+    private val _entry = MutableStateFlow(
+        savedStateHandle.get<Long>(KEY_ENTRY_TRACK)?.let { track ->
+            savedStateHandle.get<Long>(KEY_ENTRY_DAY)?.let { EntryTarget(track, LocalDate.ofEpochDay(it)) }
+        },
+    )
     private val _today = MutableStateFlow(initialToday)
     private val _oldestVisible = MutableStateFlow(initialToday.minusDays(29))
 
@@ -120,10 +132,10 @@ class JournalViewModel @Inject constructor(
     val state: StateFlow<JournalUiState> = combine(
         trackRepository.observeTracks(),
         combine(ticks, noteKeys, serverFeatures.notes) { t, n, f -> Triple(t, n, f) },
-        windowFlow,
+        combine(windowFlow, _entry) { w, e -> w to e },
         syncBundle,
         prefs,
-    ) { tracks, (ticks, noteKeys, notesSupported), window, sync, prefsBundle ->
+    ) { tracks, (ticks, noteKeys, notesSupported), (window, entry), sync, prefsBundle ->
         val visible = if (prefsBundle.showPrivate) tracks else tracks.filterNot { it.private }
         JournalUiState(
             tracks = visible,
@@ -140,11 +152,12 @@ class JournalViewModel @Inject constructor(
             layout = prefsBundle.layout,
             noteKeys = noteKeys,
             notesSupported = notesSupported,
+            entry = entry,
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = JournalUiState(window = DateWindow(_oldestVisible.value, _today.value)),
+        initialValue = JournalUiState(window = DateWindow(_oldestVisible.value, _today.value), entry = _entry.value),
     )
 
     init {
@@ -175,5 +188,26 @@ class JournalViewModel @Inject constructor(
 
     fun adjustCounter(trackLocalId: Long, date: LocalDate, delta: Int) {
         viewModelScope.launch { tickRepository.adjustCounter(trackLocalId, date, delta) }
+    }
+
+    /** Opens the Number card or the Choice sheet for a day (the cell has checked it is editable). */
+    fun openEntry(trackLocalId: Long, date: LocalDate) = setEntry(EntryTarget(trackLocalId, date))
+
+    fun closeEntry() = setEntry(null)
+
+    /** A Number's thousandths or a Choice's place, null to clear; the repository is uncancellable. */
+    fun saveValue(target: EntryTarget, value: Int?) {
+        viewModelScope.launch { tickRepository.setValue(target.trackLocalId, target.date, value) }
+    }
+
+    private fun setEntry(target: EntryTarget?) {
+        _entry.value = target
+        savedStateHandle[KEY_ENTRY_TRACK] = target?.trackLocalId
+        savedStateHandle[KEY_ENTRY_DAY] = target?.date?.toEpochDay()
+    }
+
+    private companion object {
+        const val KEY_ENTRY_TRACK = "entryTrack"
+        const val KEY_ENTRY_DAY = "entryDay"
     }
 }

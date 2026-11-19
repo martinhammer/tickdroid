@@ -90,6 +90,7 @@ internal fun TracksDownGrid(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenEntry: (trackLocalId: Long, date: LocalDate) -> Unit,
     onOpenDay: (LocalDate) -> Unit = {},
 ) {
     if (state.tracks.isEmpty()) {
@@ -108,7 +109,7 @@ internal fun TracksDownGrid(
                     .only(WindowInsetsSides.Horizontal)
             )
     ) {
-        TracksDownContent(state, maxWidth.value, onLoadOlder, onToggleBoolean, onAdjustCounter, onOpenDay)
+        TracksDownContent(state, maxWidth.value, onLoadOlder, onToggleBoolean, onAdjustCounter, onOpenEntry, onOpenDay)
     }
 }
 
@@ -119,6 +120,7 @@ private fun TracksDownContent(
     onLoadOlder: () -> Unit,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenEntry: (trackLocalId: Long, date: LocalDate) -> Unit,
     onOpenDay: (LocalDate) -> Unit,
 ) {
     val tracks = state.tracks
@@ -223,6 +225,7 @@ private fun TracksDownContent(
                             rowHeight = rowHeight,
                             onToggleBoolean = onToggleBoolean,
                             onAdjustCounter = onAdjustCounter,
+                            onOpenEntry = onOpenEntry,
                         )
                     }.single().measure(Constraints.fixedWidth(columnsWidth))
                     // placeRelative mirrors under RTL, like Row would. Shorter labels are
@@ -261,6 +264,7 @@ private fun TracksDownColumns(
     rowHeight: Dp,
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
+    onOpenEntry: (trackLocalId: Long, date: LocalDate) -> Unit,
 ) {
     val today = state.window.today
     LazyRow(
@@ -295,6 +299,7 @@ private fun TracksDownColumns(
                             editable = state.editableDays.isEditable(day, today),
                             onToggleBoolean = { onToggleBoolean(track.localId, day) },
                             onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
+                            onOpenEntry = { onOpenEntry(track.localId, day) },
                             hasNote = TickKey(track.localId, day) in state.noteKeys,
                         )
                     }

@@ -3,6 +3,8 @@ package com.martinhammer.tickdroid.data.remote
 import com.martinhammer.tickdroid.data.remote.dto.NoteDto
 import com.martinhammer.tickdroid.data.remote.dto.NoteTextResponse
 import com.martinhammer.tickdroid.data.remote.dto.StatsDto
+import com.martinhammer.tickdroid.data.sync.statsRange
+import com.martinhammer.tickdroid.domain.TrackType
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -45,13 +47,27 @@ class NoteStatsDtoTest {
         assertTrue(first.current!!.isStreak)
         assertEquals(3, first.current!!.length)
         assertFalse(first.upToYesterday)
-        assertEquals(7, first.maxValue)
+        assertEquals(7 to null, statsRange(TrackType.Counter, first))
         assertNull(stats[1].current)
     }
 
     @Test fun `a missing maxValue reads 0`() {
         val entry = json.decodeFromString(StatsDto.serializer(), """{"trackId":5,"current":{"isStreak":false,"length":21}}""")
-        assertEquals(0, entry.maxValue)
+        assertEquals(0 to null, statsRange(TrackType.Counter, entry))
         assertFalse(entry.current!!.isStreak)
+    }
+
+    @Test fun `a Number's range is read exactly in thousandths, null with no entries`() {
+        val entry = json.decodeFromString(StatsDto.serializer(), """{"trackId":5,"maxValue":10.4,"minValue":-1.5}""")
+        assertEquals(10400 to -1500, statsRange(TrackType.Number, entry))
+        val empty = json.decodeFromString(StatsDto.serializer(), """{"trackId":5,"maxValue":null,"minValue":null}""")
+        assertEquals(0 to null, statsRange(TrackType.Number, empty))
+    }
+
+    @Test fun `a scale's range is places, a plain list's null`() {
+        val ordered = json.decodeFromString(StatsDto.serializer(), """{"trackId":5,"maxValue":4,"minValue":1}""")
+        assertEquals(4 to 1, statsRange(TrackType.Choice, ordered))
+        val plain = json.decodeFromString(StatsDto.serializer(), """{"trackId":5,"maxValue":null,"minValue":null}""")
+        assertEquals(0 to null, statsRange(TrackType.Choice, plain))
     }
 }

@@ -363,7 +363,7 @@ class SyncManagerPullTest {
         assertEquals(4, rig.db.tickDao().find(rig.db.trackDao().findByServerId(11)!!.localId, "2026-04-10")?.value)
 
         // Mapping no longer throws: the track reaches the app as Unknown.
-        val tracks = TrackRepository(rig.db.trackDao()).observeTracks().first()
+        val tracks = TrackRepository(rig.db.trackDao(), rig.db.trackOptionDao()).observeTracks().first()
         assertEquals(
             listOf(TrackType.YesNo, TrackType.Counter, TrackType.Unknown("future")),
             tracks.map { it.type },
@@ -491,5 +491,95 @@ class SyncManagerPullTest {
         rig.db.trackDao().deleteById(meditate)
         assertNull(rig.db.noteDao().find(meditate, "2026-04-29"))
         assertTrue(rig.db.trackRunDao().getAll().isEmpty())
+    }
+
+    // Number and Choice tracks (Tickbuddy 3.2.0).
+
+    private val numberChoiceTracks = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+        {"id":20,"name":"Run","type":"number","sortOrder":1,"private":false,"unit":"km","decimalPlaces":1,"allowNegative":true},
+        {"id":21,"name":"Mood","type":"choice","sortOrder":2,"private":false,
+         "options":[{"value":1,"label":"Happy"},{"value":2,"label":"Normal"},{"value":3,"label":"Sad"}],"orderedScale":true}]}}"""
+
+    private val numberChoiceTicks = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+        {"id":1,"trackId":20,"date":"2026-04-10","value":10.4},
+        {"id":2,"trackId":20,"date":"2026-04-11","value":0},
+        {"id":3,"trackId":20,"date":"2026-04-12","value":-1.5},
+        {"id":4,"trackId":21,"date":"2026-04-10","value":2}]}}"""
+
+    /** A Number and a Choice track as MIGRATION_5_6 leaves them: no ticks, waiting for a pull. */
+    private suspend fun seedAwaiting() {
+        rig.db.trackDao().insert(TrackEntity(serverId = 20, name = "Run", type = "number", sortOrder = 1, private = false, awaitingSync = true))
+        rig.db.trackDao().insert(TrackEntity(serverId = 21, name = "Mood", type = "choice", sortOrder = 2, private = false, awaitingSync = true))
+    }
+
+    @Test fun numberAndChoice_valuesExactInThousandths_optionsInOrder_awaitingSyncCleared() = runTest {
+        seedAwaiting()
+        rig.enqueueJson(numberChoiceTracks)
+        rig.enqueueJson(numberChoiceTicks)
+
+        rig.syncManager.pull(from, to)
+
+        val run = localIdOf(20)
+        val mood = localIdOf(21)
+        val runValues = listOf("2026-04-10", "2026-04-11", "2026-04-12").map { rig.db.tickDao().find(run, it)?.value }
+        assertEquals(listOf(10400, 0, -1500), runValues)
+        assertEquals(2, rig.db.tickDao().find(mood, "2026-04-10")?.value)
+        val tracks = TrackRepository(rig.db.trackDao(), rig.db.trackOptionDao()).observeAllTracks().first().associateBy { it.serverId }
+        assertEquals(listOf("Happy", "Normal", "Sad"), tracks.getValue(21).options)
+        assertEquals(true, tracks.getValue(21).orderedScale)
+        assertEquals("km", tracks.getValue(20).unit)
+        assertEquals(1, tracks.getValue(20).decimalPlaces)
+        assertEquals(true, tracks.getValue(20).allowNegative)
+        assertFalse(tracks.getValue(20).awaitingSync)
+        assertFalse(tracks.getValue(21).awaitingSync)
+    }
+
+    @Test fun numberAndChoice_aDirtyRowIsLeftAlone_aRenamedOptionIsReplaced() = runTest {
+        rig.enqueueJson(numberChoiceTracks)
+        rig.enqueueJson(numberChoiceTicks)
+        rig.syncManager.pull(from, to)
+        val run = localIdOf(20)
+        val row = rig.db.tickDao().find(run, "2026-04-10")!!
+        rig.db.tickDao().update(row.copy(value = 12000, dirty = true))
+
+        rig.enqueueJson(numberChoiceTracks.replace("Normal", "Fine"))
+        rig.enqueueJson(numberChoiceTicks)
+        rig.syncManager.pull(from, to)
+
+        assertEquals(12000, rig.db.tickDao().find(run, "2026-04-10")?.value)
+        assertEquals(listOf("Happy", "Fine", "Sad"), rig.db.trackOptionDao().getForTrack(localIdOf(21)).map { it.label })
+    }
+
+    @Test fun numberAndChoice_aFailedPullOrATrackReReadLeavesAwaitingSync() = runTest {
+        seedAwaiting()
+        rig.enqueueStatus(500)
+        rig.syncManager.pull(from, to)
+        assertTrue(rig.db.trackDao().getAll().all { it.awaitingSync })
+
+        rig.enqueueJson(numberChoiceTracks)
+        rig.syncManager.changeTracks { }
+        assertTrue(rig.db.trackDao().getAll().all { it.awaitingSync })
+    }
+
+    @Test fun withStats_sendsIncludeAllTypes_storesANumbersRange() = runTest {
+        rig.stats = true
+        rig.enqueueJson(numberChoiceTracks)
+        rig.enqueueJson(numberChoiceTicks)
+        rig.enqueueJson(
+            """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":[
+              {"trackId":20,"current":{"isStreak":true,"length":3},"upToYesterday":false,"maxValue":10.4,"minValue":-1.5},
+              {"trackId":21,"current":null,"upToYesterday":false,"maxValue":null,"minValue":null}]}}""",
+        )
+
+        rig.syncManager.pull(from, to)
+
+        rig.takeApiRequest(); rig.takeApiRequest()
+        val stats = rig.takeApiRequest()
+        assertTrue(stats.path!!, stats.path!!.contains("includeAllTypes=true"))
+        val runs = rig.db.trackRunDao().getAll().associateBy { it.trackLocalId }
+        assertEquals(10400, runs.getValue(localIdOf(20)).maxValue)
+        assertEquals(-1500, runs.getValue(localIdOf(20)).minValue)
+        assertEquals(0, runs.getValue(localIdOf(21)).maxValue)
+        assertNull(runs.getValue(localIdOf(21)).minValue)
     }
 }

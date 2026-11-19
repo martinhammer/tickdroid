@@ -259,4 +259,56 @@ class TickRepositoryTest {
         // but the row exists
         assertNotNull(db.tickDao().find(trackId, date.toString()))
     }
+
+    // setValue: Number and Choice days.
+
+    @Test fun setValue_writesDirty_andAZeroIsAValue() = runTest {
+        val trackId = seedTrack(type = "number")
+
+        repo.setValue(trackId, date, 0)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(0, row.value)
+        assertTrue(row.dirty)
+        assertEquals(false, row.deleted)
+        assertNull(row.pendingDelta)
+        assertEquals(1, scheduler.pushNowCalls)
+    }
+
+    @Test fun setValue_clearMarksForRemoval_neverDeletes() = runTest {
+        val trackId = seedTrack(type = "number")
+        db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = trackId, date = date.toString(), value = 10400))
+
+        repo.setValue(trackId, date, null)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertTrue(row.deleted)
+        assertTrue(row.dirty)
+        assertEquals(10400, row.value)
+    }
+
+    @Test fun setValue_unchangedOrClearingAnEmptyDay_writesNothing() = runTest {
+        val trackId = seedTrack(type = "choice")
+        db.tickDao().upsert(TickEntity(serverId = 5, trackLocalId = trackId, date = date.toString(), value = 2))
+
+        repo.setValue(trackId, date, 2)
+        repo.setValue(trackId, date.minusDays(1), null)
+
+        assertEquals(false, db.tickDao().find(trackId, date.toString())!!.dirty)
+        assertNull(db.tickDao().find(trackId, date.minusDays(1).toString()))
+        assertEquals(0, scheduler.pushNowCalls)
+    }
+
+    @Test fun setValue_afterAClear_putsTheRowBack() = runTest {
+        val trackId = seedTrack(type = "choice")
+        db.tickDao().upsert(TickEntity(serverId = 5, trackLocalId = trackId, date = date.toString(), value = 2))
+        repo.setValue(trackId, date, null)
+
+        repo.setValue(trackId, date, 3)
+
+        val row = db.tickDao().find(trackId, date.toString())!!
+        assertEquals(3, row.value)
+        assertEquals(false, row.deleted)
+        assertTrue(row.dirty)
+    }
 }

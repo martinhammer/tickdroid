@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.data.remote
 
+import com.martinhammer.tickdroid.data.remote.dto.TrackOptionDto
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -34,5 +35,23 @@ class TrackDtoTest {
         )
         assertNull(dto.archivedAt)
         assertEquals("Gym", dto.name)
+    }
+
+    @Test fun `a Number's and a Choice's settings decode`() {
+        val number = json.decodeFromString(
+            TrackDto.serializer(),
+            """{"id":1,"name":"Run","type":"number","sortOrder":1,"private":false,"unit":"km","decimalPlaces":1,"allowNegative":false,"options":null,"orderedScale":null}""",
+        )
+        assertEquals("km", number.unit)
+        assertEquals(1, number.decimalPlaces)
+        assertEquals(false, number.allowNegative)
+        assertNull(number.options)
+        val choice = json.decodeFromString(
+            TrackDto.serializer(),
+            """{"id":2,"name":"Mood","type":"choice","sortOrder":2,"private":false,"options":[{"value":1,"label":"Happy"},{"value":2,"label":"Sad"}],"orderedScale":true}""",
+        )
+        assertEquals(listOf(TrackOptionDto(1, "Happy"), TrackOptionDto(2, "Sad")), choice.options)
+        assertEquals(true, choice.orderedScale)
+        assertNull(choice.unit)
     }
 }

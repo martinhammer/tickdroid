@@ -5,6 +5,7 @@ import com.martinhammer.tickdroid.data.remote.dto.NoteDto
 import com.martinhammer.tickdroid.data.remote.dto.NoteTextResponse
 import com.martinhammer.tickdroid.data.remote.dto.StatsDto
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
+import com.martinhammer.tickdroid.data.remote.dto.TickRawValueResponse
 import com.martinhammer.tickdroid.data.remote.dto.TickToggleResponse
 import com.martinhammer.tickdroid.data.remote.dto.TickValueResponse
 import com.martinhammer.tickdroid.data.remote.dto.TickYesNoResponse
@@ -80,6 +81,20 @@ interface TickbuddyApi {
     ): OcsEnvelope<TickYesNoResponse>
 
     /**
+     * [setTick] for a Number or Choice day (Tickbuddy 3.2.0): [value] is a Number with a point and
+     * no grouping (`"10.4"`, `"-1.5"`, `"72"`), a Choice's place (`"2"`), or `""` to clear the day
+     * (a form can't send null; the web sends "" too). Absolute, so safe to repeat. The answer is
+     * raw ([TickRawValueResponse]): a decimal, a place, or null once cleared.
+     */
+    @FormUrlEncoded
+    @POST("/ocs/v2.php/apps/tickbuddy/api/ticks/set")
+    suspend fun setValue(
+        @Field("trackId") trackId: Long,
+        @Field("date") date: String,
+        @Field("value") value: String,
+    ): OcsEnvelope<TickRawValueResponse>
+
+    /**
      * Adds [delta] (never 0) to a counter day (capability `counterIncrement`); answers the new
      * value, which includes other clients' changes. Not safe to repeat on its own, so always with
      * [idempotencyKey] (capability `idempotencyKey`): a quoted UUID, a Structured Fields string,
@@ -97,17 +112,29 @@ interface TickbuddyApi {
     // Track changes. Form-encoded exactly as Tickbuddy's own settings page sends them
     // (`TrackSettings.vue`, `URLSearchParams`), so the server's parameter parsing is proven.
 
-    /** 201 with the new track, placed at `max(sort_order) + 1`. The server ignores `private` here. */
+    /**
+     * 201 with the new track, placed at `max(sort_order) + 1`. The server ignores `private` here.
+     * Only the chosen type's settings are sent (the server refuses another type's with 400): a
+     * Number's [unit], [decimalPlaces] and [allowNegative]; a Choice's [options] (repeated
+     * `options[]`, in place order) and [orderedScale]. Null fields are left out, so a yes/no or
+     * counter request is unchanged.
+     */
     @FormUrlEncoded
     @POST("/ocs/v2.php/apps/tickbuddy/api/tracks")
     suspend fun createTrack(
         @Field("name") name: String,
         @Field("type") type: String,
+        @Field("unit") unit: String? = null,
+        @Field("decimalPlaces") decimalPlaces: Int? = null,
+        @Field("allowNegative") allowNegative: Boolean? = null,
+        @Field("options[]") options: List<String>? = null,
+        @Field("orderedScale") orderedScale: Boolean? = null,
     ): OcsEnvelope<TrackDto>
 
     /**
      * Each call carries one change: [name], or [isPrivate], or [archived] (with [archivedAt] when
-     * archiving). Retrofit omits null fields; a form body needs at least one. `archived=true`
+     * archiving), or one of a Number's or Choice's settings ([unit], "" to empty it,
+     * [decimalPlaces], [allowNegative], [orderedScale]). Retrofit omits null fields; a form body needs at least one. `archived=true`
      * stores [archivedAt] (YYYY-MM-DD, the phone's today) and leaves the sort order alone;
      * `archived=false` restores and moves the track to the end. Never add `sortOrder`: the server has a unique index on (user_id, sort_order),
      * so a single-track move can collide. [reorderTracks] is the only way order changes.
@@ -120,6 +147,19 @@ interface TickbuddyApi {
         @Field("private") isPrivate: Boolean? = null,
         @Field("archived") archived: Boolean? = null,
         @Field("archivedAt") archivedAt: String? = null,
+        @Field("unit") unit: String? = null,
+        @Field("decimalPlaces") decimalPlaces: Int? = null,
+        @Field("allowNegative") allowNegative: Boolean? = null,
+        @Field("orderedScale") orderedScale: Boolean? = null,
+    ): OcsEnvelope<TrackDto>
+
+    /** Renames the Choice option at [place]; answers the whole track. */
+    @FormUrlEncoded
+    @PUT("/ocs/v2.php/apps/tickbuddy/api/tracks/{id}/options/{value}")
+    suspend fun renameOption(
+        @Path("id") id: Long,
+        @Path("value") place: Int,
+        @Field("label") label: String,
     ): OcsEnvelope<TrackDto>
 
     /**
@@ -179,9 +219,13 @@ interface TickbuddyApi {
     ): Response<Unit>
 
     /**
-     * Every active track's stats as of [today], the phone's date. No `includeAllTypes`: the
-     * parameter isn't defined here, so a track of a newer type may be missing from the answer.
+     * Every active track's stats as of [today], the phone's date. [includeAllTypes] as for
+     * [getTracks]: Tickdroid sends true, so Number and Choice tracks have streaks and a range; a
+     * type newer than those may still be missing (and then shows no streak).
      */
     @GET("/ocs/v2.php/apps/tickbuddy/api/stats")
-    suspend fun getStats(@Query("today") today: String): OcsEnvelope<List<StatsDto>>
+    suspend fun getStats(
+        @Query("today") today: String,
+        @Query("includeAllTypes") includeAllTypes: Boolean? = null,
+    ): OcsEnvelope<List<StatsDto>>
 }

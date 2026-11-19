@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.ui.settings
 
+import com.martinhammer.tickdroid.data.sync.NewTrackSettings
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
@@ -59,7 +60,7 @@ class TrackSettingsUiTest {
     @Test fun newTrack_addDisabledWhileBlank_yesNoByDefault() {
         var added: Triple<String, TrackType, Boolean>? = null
         rule.setContent {
-            TickdroidTheme { NewTrackForm(adding = false, onAdd = { n, t, p -> added = Triple(n, t, p) }) }
+            TickdroidTheme { NewTrackForm(adding = false, onAdd = { n, t, p, _ -> added = Triple(n, t, p) }) }
         }
         rule.onNodeWithText("Add track").assertIsNotEnabled()
         rule.onNodeWithText("Yes/No").assertIsSelected()
@@ -73,8 +74,54 @@ class TrackSettingsUiTest {
         assertEquals(Triple("   Water", TrackType.Counter, false), added)
     }
 
+    @Test fun newTrack_numberAndChoiceOnlyWithTheirFlags() {
+        rule.setContent { TickdroidTheme { NewTrackForm(adding = false, onAdd = { _, _, _, _ -> }) } }
+        rule.onNodeWithTag("newTrackType-number").assertDoesNotExist()
+        rule.onNodeWithTag("newTrackType-choice").assertDoesNotExist()
+    }
+
+    @Test fun newTrack_number_sendsItsSettings() {
+        var added: Pair<TrackType, NewTrackSettings>? = null
+        rule.setContent {
+            TickdroidTheme {
+                NewTrackForm(adding = false, onAdd = { _, t, _, s -> added = t to s }, numberSupported = true, choiceSupported = true)
+            }
+        }
+        rule.onNodeWithTag("newTrackName").performTextInput("Run")
+        rule.onNodeWithTag("newTrackType-number").performClick()
+        rule.onNodeWithTag("newTrackUnit").performTextInput("km")
+        rule.onNodeWithText("Allow negative values").performClick()
+        rule.onNodeWithText("Add track").performClick()
+        assertEquals(TrackType.Number, added?.first)
+        assertEquals("km", added?.second?.unit)
+        assertEquals(1, added?.second?.decimalPlaces)
+        assertEquals(true, added?.second?.allowNegative)
+    }
+
+    @Test fun newTrack_choice_needsDistinctOptions() {
+        var added: NewTrackSettings? = null
+        rule.setContent {
+            TickdroidTheme {
+                NewTrackForm(adding = false, onAdd = { _, _, _, s -> added = s }, numberSupported = true, choiceSupported = true)
+            }
+        }
+        rule.onNodeWithTag("newTrackName").performTextInput("Mood")
+        rule.onNodeWithTag("newTrackType-choice").performClick()
+        rule.onNodeWithText("Add track").assertIsNotEnabled()
+        rule.onNodeWithTag("newTrackOption-0").performTextInput("Happy")
+        rule.onNodeWithTag("newTrackOption-1").performTextInput("happy")
+        rule.onNodeWithText("Another option has this label.").assertExists()
+        rule.onNodeWithText("Add track").assertIsNotEnabled()
+        rule.onNodeWithTag("newTrackOption-1").performTextClearance()
+        rule.onNodeWithTag("newTrackOption-1").performTextInput("Sad")
+        rule.onNodeWithTag("addOption").performClick()
+        rule.onNodeWithTag("newTrackOption-2").performTextInput("Normal")
+        rule.onNodeWithText("Add track").assertIsEnabled().performClick()
+        assertEquals(listOf("Happy", "Sad", "Normal"), added?.options)
+    }
+
     @Test fun newTrack_nameStopsAt255Characters() {
-        rule.setContent { TickdroidTheme { NewTrackForm(adding = false, onAdd = { _, _, _ -> }) } }
+        rule.setContent { TickdroidTheme { NewTrackForm(adding = false, onAdd = { _, _, _, _ -> }) } }
         rule.onNodeWithTag("newTrackName").performTextInput("a".repeat(300))
         val text = rule.onNodeWithTag("newTrackName").fetchSemanticsNode()
             .config[SemanticsProperties.EditableText].text

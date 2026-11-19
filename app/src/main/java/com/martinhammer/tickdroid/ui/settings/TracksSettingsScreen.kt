@@ -200,10 +200,12 @@ fun TracksSettingsScreen(
         NewTrackSheet(
             sheetState = sheetState,
             adding = state.adding,
-            onAdd = { name, type, private ->
-                if (online) viewModel.create(name, type, private) else offlineToast()
+            onAdd = { name, type, private, settings ->
+                if (online) viewModel.create(name, type, private, settings) else offlineToast()
             },
             onDismiss = { if (!state.adding) showNewTrack = false },
+            numberSupported = state.numberSupported,
+            choiceSupported = state.choiceSupported,
         )
     }
 
@@ -540,6 +542,8 @@ private fun TrackRow(
 internal fun trackTypeLabel(type: TrackType): String = when (type) {
     TrackType.YesNo -> "Yes/No"
     TrackType.Counter -> "Counter"
+    TrackType.Number -> "Number"
+    TrackType.Choice -> "Choice"
     is TrackType.Unknown -> UPDATE_REQUIRED
 }
 

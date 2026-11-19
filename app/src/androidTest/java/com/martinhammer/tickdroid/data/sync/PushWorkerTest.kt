@@ -1215,4 +1215,112 @@ class PushWorkerTest {
         assertTrue(note(track)!!.dirty)
         assertEquals(3, rig.server.requestCount) // with the capabilities call
     }
+
+    // Number and Choice: an absolute `set`, no key.
+
+    private fun setRaw(value: String) = """{"ocs":{"meta":{"status":"ok","statuscode":200},"data":{"value":$value}}}"""
+
+    @Test fun number_sendsTheDecimal_settlesCleanAtTheAnswer() = runTest {
+        val track = seedTrack(serverId = 20L, type = "number")
+        repo.setValue(track, today, 10400)
+        rig.enqueueJson(setRaw("10.4"))
+        enqueuePull(20L, "number", """{"id":50,"trackId":20,"date":"$today","value":10.4}""")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        val request = rig.takeApiRequest()
+        assertTrue(request.path!!, request.path!!.endsWith("/ticks/set"))
+        assertNull(request.getHeader("Idempotency-Key"))
+        assertEquals(mapOf("trackId" to "20", "date" to today.toString(), "value" to "10.4"), request.form())
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(10400, row.value)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun number_zeroIsSentAndKept() = runTest {
+        val track = seedTrack(serverId = 20L, type = "number")
+        repo.setValue(track, today, 0)
+        rig.enqueueJson(setRaw("0"))
+        enqueuePull(20L, "number", """{"id":50,"trackId":20,"date":"$today","value":0}""")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertEquals("0", rig.takeApiRequest().form()["value"])
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(0, row.value)
+        assertFalse(row.dirty)
+    }
+
+    @Test fun number_clearedSendsEmpty_andTheRowGoes() = runTest {
+        val track = seedTrack(serverId = 20L, type = "number")
+        rig.db.tickDao().upsert(TickEntity(serverId = 50L, trackLocalId = track, date = today.toString(), value = 5000))
+        repo.setValue(track, today, null)
+        rig.enqueueJson(setRaw("null"))
+        enqueuePull(20L, "number")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertEquals("", rig.takeApiRequest().form()["value"])
+        assertNull(rig.db.tickDao().find(track, today.toString()))
+    }
+
+    @Test fun choice_sendsThePlace() = runTest {
+        val track = seedTrack(serverId = 21L, type = "choice")
+        repo.setValue(track, today, 2)
+        rig.enqueueJson(setRaw("2"))
+        enqueuePull(21L, "choice", """{"id":50,"trackId":21,"date":"$today","value":2}""")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertEquals("2", rig.takeApiRequest().form()["value"])
+        assertFalse(rig.db.tickDao().find(track, today.toString())!!.dirty)
+    }
+
+    @Test fun number_aChangeDuringTheRequestStaysDirty() = runBlocking {
+        val track = seedTrack(serverId = 20L, type = "number")
+        repo.setValue(track, today, 10400)
+
+        val worker = buildWorker()
+        val run = launch(Dispatchers.IO) { assertEquals(ListenableWorker.Result.success(), worker.doWork()) }
+        assertEquals("10.4", rig.takeApiRequest().form()["value"]) // in flight: its answer isn't queued yet
+        repo.setValue(track, today, 12000)
+        rig.enqueueJson(setRaw("10.4"))
+        enqueuePull(20L, "number", """{"id":50,"trackId":20,"date":"$today","value":10.4}""")
+        run.join()
+
+        val row = rig.db.tickDao().find(track, today.toString())!!
+        assertEquals(12000, row.value)
+        assertTrue("the new value is still to go up", row.dirty)
+    }
+
+    @Test fun number_400WithReasonDrops_423DropsAndTells() = runTest {
+        val run = seedTrack(serverId = 20L, type = "number")
+        repo.setValue(run, today, -1000)
+        rig.enqueueJson("""{"ocs":{"meta":{"status":"failure","statuscode":400},"data":{"reason":"negativeNotAllowed","message":"No"}}}""", code = 400)
+        enqueuePull(20L, "number")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        assertNull(rig.db.tickDao().find(run, today.toString()))
+        assertTrue(notices.shown.isEmpty())
+
+        repo.setValue(run, today, 1000)
+        rig.enqueueJson("""{"ocs":{"meta":{"status":"failure","statuscode":423},"data":{"reason":"archived","message":"Archived"}}}""", code = 423)
+        enqueuePull(20L, "number")
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+        assertNull(rig.db.tickDao().find(run, today.toString()))
+        assertEquals(listOf("T20 is archived, so the change wasn't saved."), notices.shown)
+    }
+
+    @Test fun number_aDirtyRowOfATrackAwaitingSyncIsDroppedUnsent() = runTest {
+        val track = rig.db.trackDao().insert(
+            TrackEntity(serverId = 20L, name = "T20", type = "number", sortOrder = 0, private = false, awaitingSync = true),
+        )
+        rig.db.tickDao().upsert(TickEntity(serverId = null, trackLocalId = track, date = today.toString(), value = 1, dirty = true))
+        enqueuePull(20L, "number")
+
+        assertEquals(ListenableWorker.Result.success(), buildWorker().doWork())
+
+        assertNull(rig.db.tickDao().find(track, today.toString()))
+        assertFalse(rig.takeApiRequest().path!!.contains("/ticks/set"))
+    }
 }

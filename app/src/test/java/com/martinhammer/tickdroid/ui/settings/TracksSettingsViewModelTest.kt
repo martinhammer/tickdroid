@@ -43,7 +43,11 @@ class TracksSettingsViewModelTest {
     private val online = MutableStateFlow(true)
     private val trackRepository = mockk<TrackRepository> { every { observeAllTracks() } returns tracks }
     private val archiveFlag = MutableStateFlow(true)
-    private val serverFeatures = mockk<ServerFeatures> { every { archivedTracks } returns archiveFlag }
+    private val serverFeatures = mockk<ServerFeatures> {
+        every { archivedTracks } returns archiveFlag
+        every { numberTracks } returns MutableStateFlow(false)
+        every { choiceTracks } returns MutableStateFlow(false)
+    }
     private val prefsRepository = mockk<TrackPrefsRepository> {
         every { observeAll() } returns MutableStateFlow(emptyMap<Long, TrackPrefs>())
     }

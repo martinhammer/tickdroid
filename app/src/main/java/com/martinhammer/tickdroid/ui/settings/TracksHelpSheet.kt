@@ -40,7 +40,8 @@ internal fun TracksHelpSheet(archiveSupported: Boolean, onDismiss: () -> Unit) {
 
 /** The sheet's paragraphs. The archive one only when the server can archive. */
 internal fun tracksHelpParagraphs(archiveSupported: Boolean): List<String> = listOfNotNull(
-    "Name, type, private status and track order are synced to Tickbuddy on your Nextcloud server.",
+    "Name, type, type settings, private status and track order are synced to Tickbuddy on your " +
+        "Nextcloud server.",
     "Colour and icon are set on this phone only.",
     "The icon is shown next to or instead of the track name, depending on the space available.",
     "Private tracks are hidden from the journal unless “Show private tracks” is on in " +
@@ -51,7 +52,6 @@ internal fun tracksHelpParagraphs(archiveSupported: Boolean): List<String> = lis
     } else {
         null
     },
-    // The same sentence with or without archive support (decided 15 Oct).
-    "The following actions are not available while you're offline: add, rename, toggle " +
-        "private, reorder, archive, restore and delete tracks.",
+    // The same sentence with or without archive support (T17, 18 Nov).
+    "Changes to tracks that are synced to your server can't be made while you're offline.",
 )

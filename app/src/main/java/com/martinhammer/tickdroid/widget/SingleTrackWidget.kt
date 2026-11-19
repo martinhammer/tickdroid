@@ -60,7 +60,7 @@ internal fun SingleTrackContent(model: ButtonModel, badge: SyncBadge, appWidgetI
         )
         is ButtonModel.Content -> Triple(
             null,
-            tickAction(model.row, model.day),
+            tickAction(context, model.row, model.day),
             cellDescription(model.row),
         )
     }
