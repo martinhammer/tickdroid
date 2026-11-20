@@ -4,7 +4,9 @@ import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.ocsErrorMessage
 import com.martinhammer.tickdroid.data.remote.ocsErrorReason
 import com.martinhammer.tickdroid.data.time.Clock
+import com.martinhammer.tickdroid.domain.MAX_DECIMAL_PLACES
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.domain.capTrackName
 import com.martinhammer.tickdroid.domain.cleanTrackName
 import kotlinx.serialization.json.Json
 import retrofit2.HttpException
@@ -43,10 +45,30 @@ class TrackEditor @Inject constructor(
     private val json: Json,
     private val clock: Clock,
 ) {
-    suspend fun create(name: String, type: TrackType, private: Boolean): TrackChange {
+    /**
+     * [settings] are sent only for the type they belong to (the server refuses another type's
+     * with 400): a Number's unit, places and negative switch, a Choice's labels and scale.
+     */
+    suspend fun create(
+        name: String,
+        type: TrackType,
+        private: Boolean,
+        settings: NewTrackSettings = NewTrackSettings(),
+    ): TrackChange {
         val clean = cleanTrackName(name) ?: return TrackChange.Failed(EMPTY_NAME)
+        val number = type == TrackType.Number
+        val choice = type == TrackType.Choice
+        val labels = settings.options.map { it.trim() }
         return run {
-            val created = it.createTrack(clean, type.wireValue).ocs.data
+            val created = it.createTrack(
+                name = clean,
+                type = type.wireValue,
+                unit = if (number) cleanUnit(settings.unit) else null,
+                decimalPlaces = if (number) settings.decimalPlaces else null,
+                allowNegative = if (number) settings.allowNegative else null,
+                options = if (choice) labels else null,
+                orderedScale = if (choice) settings.orderedScale else null,
+            ).ocs.data
             if (!private) return@run TrackChange.Created(created.id)
             // The server doesn't take `private` on create, so it's a second call in the same
             // lock hold. If it fails, the track stays (public) and the user is told.
@@ -72,6 +94,36 @@ class TrackEditor @Inject constructor(
     suspend fun setPrivate(serverId: Long, private: Boolean): TrackChange = run {
         it.updateTrack(serverId, isPrivate = private)
         TrackChange.Done
+    }
+
+    /** A Number's unit; "" empties it. Trimmed and capped at 255 code points, as names are. */
+    suspend fun setUnit(serverId: Long, unit: String): TrackChange = run {
+        it.updateTrack(serverId, unit = cleanUnit(unit))
+        TrackChange.Done
+    }
+
+    suspend fun setDecimalPlaces(serverId: Long, places: Int): TrackChange = run {
+        it.updateTrack(serverId, decimalPlaces = places.coerceIn(0, MAX_DECIMAL_PLACES))
+        TrackChange.Done
+    }
+
+    suspend fun setAllowNegative(serverId: Long, allow: Boolean): TrackChange = run {
+        it.updateTrack(serverId, allowNegative = allow)
+        TrackChange.Done
+    }
+
+    suspend fun setOrderedScale(serverId: Long, ordered: Boolean): TrackChange = run {
+        it.updateTrack(serverId, orderedScale = ordered)
+        TrackChange.Done
+    }
+
+    /** Renames a Choice option. The server refuses a blank label or one another option has. */
+    suspend fun renameOption(serverId: Long, place: Int, label: String): TrackChange {
+        val clean = cleanTrackName(label) ?: return TrackChange.Failed(EMPTY_LABEL)
+        return run {
+            it.renameOption(serverId, place, clean)
+            TrackChange.Done
+        }
     }
 
     /**
@@ -149,8 +201,24 @@ class TrackEditor @Inject constructor(
     private companion object {
         // The server's own wording for the same case. The UI never lets a blank name through.
         const val EMPTY_NAME = "Track name cannot be empty"
+        const val EMPTY_LABEL = "Option labels cannot be empty"
     }
 }
+
+/** A new track's type settings; only the chosen type's are sent ([TrackEditor.create]). */
+data class NewTrackSettings(
+    val unit: String = "",
+    val decimalPlaces: Int = DEFAULT_DECIMAL_PLACES,
+    val allowNegative: Boolean = false,
+    val options: List<String> = emptyList(),
+    val orderedScale: Boolean = false,
+)
+
+/** A new Number track's decimal places, as on the server. */
+const val DEFAULT_DECIMAL_PLACES = 1
+
+/** A unit as sent: trimmed and capped at 255 code points, as names are; may be "". */
+internal fun cleanUnit(raw: String): String = capTrackName(raw.trim())
 
 /**
  * The order to send to `PUT /tracks/reorder`: [wanted] minus ids the server no longer has, then

@@ -12,4 +12,6 @@ data class TrackPrefsEntity(
     @PrimaryKey val serverId: Long,
     val colorKey: String? = null,
     val emoji: String? = null,
+    /** Choice only: `CellLabel.key`; null is the short label. */
+    val cellLabel: String? = null,
 )

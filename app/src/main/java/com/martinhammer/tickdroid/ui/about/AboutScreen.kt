@@ -42,6 +42,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.core.net.toUri
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 
+private const val TICKBUDDY_URL = "https://tickbuddy.app"
 private const val GITHUB_URL = "https://github.com/martinhammer/tickdroid"
 private const val LICENCE_URL = "https://github.com/martinhammer/tickdroid/blob/main/LICENCE"
 
@@ -129,6 +130,15 @@ fun AboutScreen(onBack: () -> Unit) {
             )
             Spacer(Modifier.height(32.dp))
 
+            OutlinedButton(
+                onClick = {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, TICKBUDDY_URL.toUri()))
+                },
+                modifier = Modifier.widthIn(max = MaxContentWidth).fillMaxWidth(),
+            ) {
+                Text("Visit tickbuddy.app")
+            }
+            Spacer(Modifier.height(8.dp))
             OutlinedButton(
                 onClick = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, GITHUB_URL.toUri()))

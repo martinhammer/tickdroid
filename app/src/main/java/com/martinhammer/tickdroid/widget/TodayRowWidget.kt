@@ -104,7 +104,7 @@ private fun TrackColumn(row: WidgetRow, day: LocalDate, metrics: RowMetrics) {
     // The whole column (label and cell) is the tap target.
     Column(
         modifier = GlanceModifier.width(RowColumnDp.dp)
-            .clickable(tickAction(row, day))
+            .clickable(tickAction(LocalContext.current, row, day))
             .semantics {
                 contentDescription = cellDescription(row)
                 testTag = "widgetColumn-${row.serverId}"

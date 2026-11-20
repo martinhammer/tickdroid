@@ -88,6 +88,43 @@ class TickRepository @Inject constructor(
         if (changed) syncScheduler.schedulePushNow()
     }
 
+    /**
+     * Sets a Number or Choice day: [value] is a Number's thousandths or a Choice's place, null to
+     * clear the day. Writes nothing when it already holds that (row 11d) or when clearing a day
+     * with no value. Otherwise the row takes the value (or is marked for removal, its value kept),
+     * dirty, and goes up with an absolute `set`. Like the other writes, never deletes a row: only
+     * the push does, once the server has answered.
+     */
+    suspend fun setValue(trackLocalId: Long, date: LocalDate, value: Int?) {
+        val key = date.toString()
+        val changed = withTransactionUncancellable {
+            val existing = tickDao.find(trackLocalId, key)
+            val live = existing?.takeUnless { it.deleted }
+            when {
+                value == null && live == null -> false
+                value != null && live?.value == value -> false
+                existing == null -> {
+                    tickDao.upsert(TickEntity(serverId = null, trackLocalId = trackLocalId, date = key, value = value!!, dirty = true))
+                    true
+                }
+                else -> {
+                    tickDao.update(
+                        existing.copy(
+                            value = value ?: existing.value,
+                            deleted = value == null,
+                            dirty = true,
+                            pendingDelta = null,
+                            sentDelta = null,
+                            sentKey = null,
+                        ),
+                    )
+                    true
+                }
+            }
+        }
+        if (changed) syncScheduler.schedulePushNow()
+    }
+
     private suspend fun <T> withTransactionUncancellable(block: suspend () -> T): T =
         database.withTransactionUncancellable(block)
 }

@@ -55,7 +55,6 @@ import com.martinhammer.tickdroid.domain.Tick
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.TrackRun
-import com.martinhammer.tickdroid.domain.TrackType
 import com.martinhammer.tickdroid.ui.common.MaxContentWidth
 import com.martinhammer.tickdroid.ui.common.TrackBadge
 import com.martinhammer.tickdroid.ui.journal.TickCell
@@ -107,6 +106,7 @@ internal fun TodayRow(
     onAdjustCounter: (delta: Int) -> Unit,
     onOpenNote: () -> Unit,
     onLockedTap: () -> Unit,
+    onOpenEntry: () -> Unit = {},
 ) {
     // Notes open only on a day that can be changed, and only when the server keeps notes. On a
     // locked day the name and the note still answer a tap, with the cell's locked-day toast.
@@ -147,7 +147,7 @@ internal fun TodayRow(
                             days = squareWindow(today, day),
                             shown = day,
                             ticks = ticks,
-                            maxValue = run?.maxValue ?: 0,
+                            run = run,
                             modifier = Modifier.align(Alignment.CenterVertically),
                         )
                         val text = if (showRun) runText(run) else null
@@ -163,15 +163,27 @@ internal fun TodayRow(
                         }
                     }
                 }
-                TickCell(
-                    track = track,
-                    tick = ticks[TickKey(track.localId, day)],
-                    prefs = prefs,
-                    cellSize = ControlSize,
-                    editable = editable,
-                    onToggleBoolean = onToggleBoolean,
-                    onAdjustCounter = onAdjustCounter,
-                )
+                // Number and Choice get the wider control, at the row's end like the cell, so
+                // Yes/No and Counter keep their 48dp cell where it was.
+                if (track.entersValue) {
+                    ValueControl(
+                        track = track,
+                        prefs = prefs,
+                        tick = ticks[TickKey(track.localId, day)],
+                        editable = editable,
+                        onOpen = onOpenEntry,
+                    )
+                } else {
+                    TickCell(
+                        track = track,
+                        tick = ticks[TickKey(track.localId, day)],
+                        prefs = prefs,
+                        cellSize = ControlSize,
+                        editable = editable,
+                        onToggleBoolean = onToggleBoolean,
+                        onAdjustCounter = onAdjustCounter,
+                    )
+                }
                 if (notesSupported && note != null) {
                     NoteLine(
                         trackName = track.name,
@@ -328,9 +340,10 @@ private fun NoteLine(
 
 /**
  * Seven 10dp squares, newest on the left (mirrored in RTL), with [shown] outlined: dashed while
- * it isn't ticked, solid once it is. Ticked days are shaded by level as on the web ([levelFor],
- * [LEVEL_ALPHA]) towards the track's strong colour ([squareColour]): a yes/no day at level 2
- * (45%), a counter at 1 to 4. No TalkBack description yet (cells have none either).
+ * it has no entry, solid once it has one. Days are shaded by level as on the web ([squareLevel],
+ * [LEVEL_ALPHA]) towards the track's strong colour ([squareColour]): a yes/no day and a plain
+ * Choice at level 2 (45%), a counter, a Number and an ordered scale at 1 to 4. No TalkBack
+ * description yet (cells have none either).
  */
 @Composable
 private fun Squares(
@@ -339,7 +352,7 @@ private fun Squares(
     days: List<LocalDate>,
     shown: LocalDate,
     ticks: Map<TickKey, Tick>,
-    maxValue: Int,
+    run: TrackRun?,
     modifier: Modifier = Modifier,
 ) {
     val empty = MaterialTheme.colorScheme.surfaceContainerHighest
@@ -348,7 +361,6 @@ private fun Squares(
     val full = squareColour(prefs.colorKey, dark, MaterialTheme.colorScheme.primary)
     val outline = MaterialTheme.colorScheme.outline
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val isCounter = track.type == TrackType.Counter
     val margin = OutlineGap + OutlineWidth
     val width = SquareSize * days.size + SquareGap * (days.size - 1) + margin * 2
     Canvas(
@@ -362,8 +374,8 @@ private fun Squares(
         days.forEachIndexed { index, date ->
             val slot = if (rtl) days.size - 1 - index else index
             val left = inset + slot * step
-            val value = ticks[TickKey(track.localId, date)]?.value ?: 0
-            val level = levelFor(value, isCounter, maxValue)
+            val tick = ticks[TickKey(track.localId, date)]
+            val level = squareLevel(track, tick, run)
             // Every ticked day by its level, as on the web: yes/no is level 2 (45%), counters 1 to 4.
             val color: Color = if (level == 0) empty else lerp(empty, full, LEVEL_ALPHA[level])
             drawRoundRect(
@@ -382,7 +394,8 @@ private fun Squares(
                     cornerRadius = CornerRadius(SquareCorner.toPx() + out),
                     style = Stroke(
                         width = stroke,
-                        pathEffect = if (value > 0) null else PathEffect.dashPathEffect(floatArrayOf(stroke * 1.5f, stroke)),
+                        // An entry, not `value > 0`: a Number of 0 is one.
+                        pathEffect = if (level > 0) null else PathEffect.dashPathEffect(floatArrayOf(stroke * 1.5f, stroke)),
                     ),
                 )
             }

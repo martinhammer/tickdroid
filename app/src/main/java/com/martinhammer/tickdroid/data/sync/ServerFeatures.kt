@@ -60,6 +60,16 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
     /** `GET /api/stats`: streaks and each track's highest value. */
     val stats: StateFlow<Boolean> = _stats.asStateFlow()
 
+    private val _numberTracks = MutableStateFlow(prefs.getBoolean(KEY_NUMBER_TRACKS, false))
+
+    /** Tickbuddy 3.2.0+: Number tracks can be created. Only decides what New track offers. */
+    val numberTracks: StateFlow<Boolean> = _numberTracks.asStateFlow()
+
+    private val _choiceTracks = MutableStateFlow(prefs.getBoolean(KEY_CHOICE_TRACKS, false))
+
+    /** Tickbuddy 3.2.0+: Choice tracks can be created. Only decides what New track offers. */
+    val choiceTracks: StateFlow<Boolean> = _choiceTracks.asStateFlow()
+
     /** Stores what [capability] says. A missing capability (or flag) means false. */
     fun update(capability: TickbuddyCapability?) {
         store(_archivedTracks, KEY_ARCHIVED_TRACKS, archivedTracksFlag(capability))
@@ -69,6 +79,8 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
         store(_notes, KEY_NOTES, notesFlag(capability))
         store(_notesAppend, KEY_NOTES_APPEND, notesAppendFlag(capability))
         store(_stats, KEY_STATS, statsFlag(capability))
+        store(_numberTracks, KEY_NUMBER_TRACKS, numberTracksFlag(capability))
+        store(_choiceTracks, KEY_CHOICE_TRACKS, choiceTracksFlag(capability))
     }
 
     private fun store(flow: MutableStateFlow<Boolean>, key: String, value: Boolean) {
@@ -87,6 +99,8 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
         _notes.value = false
         _notesAppend.value = false
         _stats.value = false
+        _numberTracks.value = false
+        _choiceTracks.value = false
     }
 
     private companion object {
@@ -97,6 +111,8 @@ class ServerFeatures @Inject constructor(@ApplicationContext context: Context) {
         const val KEY_NOTES = "notes"
         const val KEY_NOTES_APPEND = "notes_append"
         const val KEY_STATS = "stats"
+        const val KEY_NUMBER_TRACKS = "number_tracks"
+        const val KEY_CHOICE_TRACKS = "choice_tracks"
     }
 }
 
@@ -121,3 +137,9 @@ internal fun notesAppendFlag(capability: TickbuddyCapability?): Boolean =
 
 internal fun statsFlag(capability: TickbuddyCapability?): Boolean =
     capability?.features?.get("stats") == true
+
+internal fun numberTracksFlag(capability: TickbuddyCapability?): Boolean =
+    capability?.features?.get("numberTracks") == true
+
+internal fun choiceTracksFlag(capability: TickbuddyCapability?): Boolean =
+    capability?.features?.get("choiceTracks") == true

@@ -1,5 +1,6 @@
 package com.martinhammer.tickdroid.data.sync
 
+import android.util.Log
 import androidx.room.withTransaction
 import com.martinhammer.tickdroid.data.auth.AuthRepository
 import com.martinhammer.tickdroid.data.auth.AuthState
@@ -10,14 +11,20 @@ import com.martinhammer.tickdroid.data.local.TickEntity
 import com.martinhammer.tickdroid.data.local.TickdroidDatabase
 import com.martinhammer.tickdroid.data.local.TrackDao
 import com.martinhammer.tickdroid.data.local.TrackEntity
+import com.martinhammer.tickdroid.data.local.TrackOptionDao
+import com.martinhammer.tickdroid.data.local.TrackOptionEntity
 import com.martinhammer.tickdroid.data.local.TrackPrefsDao
 import com.martinhammer.tickdroid.data.local.TrackRunDao
 import com.martinhammer.tickdroid.data.local.TrackRunEntity
 import com.martinhammer.tickdroid.data.remote.TickbuddyApi
 import com.martinhammer.tickdroid.data.remote.dto.NoteDto
+import com.martinhammer.tickdroid.data.remote.dto.StatsDto
 import com.martinhammer.tickdroid.data.remote.dto.TickDto
 import com.martinhammer.tickdroid.data.remote.dto.TrackDto
+import com.martinhammer.tickdroid.data.remote.dto.lenientTickValue
 import com.martinhammer.tickdroid.data.time.Clock
+import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.domain.numberFromWire
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -30,6 +37,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import java.io.IOException
 import java.time.LocalDate
 import javax.net.ssl.SSLException
@@ -83,6 +94,7 @@ class SyncManager @Inject constructor(
     private val noteDao: NoteDao,
     private val trackRunDao: TrackRunDao,
     private val clock: Clock,
+    private val trackOptionDao: TrackOptionDao,
 ) {
     private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
@@ -149,6 +161,10 @@ class SyncManager @Inject constructor(
                         applyTracks(tracks)
                         reconcileTicks(ticks, from.toString(), to.toString())
                         if (notes != null) reconcileNotes(notes, from.toString(), to.toString())
+                        // The first pull after the update has brought these tracks' values, so
+                        // they can be written again (MIGRATION_5_6). Only here: changeTracks'
+                        // re-read reads no ticks.
+                        trackDao.clearAwaitingSync(tracks.map { it.id })
                     }
                 }
                 if (serverFeatures.stats.value) refreshRuns()
@@ -236,7 +252,7 @@ class SyncManager @Inject constructor(
     private suspend fun refreshRuns() {
         val today = clock.today().toString()
         val stats = try {
-            api.getStats(today).ocs.data
+            api.getStats(today, includeAllTypes = true).ocs.data
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
@@ -247,13 +263,15 @@ class SyncManager @Inject constructor(
                 val tracksByServerId = trackDao.getAll().associateBy { it.serverId }
                 val rows = stats.mapNotNull { dto ->
                     val track = tracksByServerId[dto.trackId] ?: return@mapNotNull null
+                    val (max, min) = statsRange(TrackType.fromWire(track.type), dto)
                     TrackRunEntity(
                         trackLocalId = track.localId,
                         asOf = today,
                         isStreak = dto.current?.isStreak,
                         length = dto.current?.length,
                         upToYesterday = dto.upToYesterday,
-                        maxValue = dto.maxValue,
+                        maxValue = max,
+                        minValue = min,
                     )
                 }.distinctBy { it.trackLocalId }
                 trackRunDao.replaceAll(rows)
@@ -289,7 +307,9 @@ class SyncManager @Inject constructor(
 
         for (dto in remote) {
             val existing = local[dto.id] ?: trackDao.findUnsyncedByName(dto.name)
-            if (existing == null) {
+            // Never sets awaitingSync: a track first seen here arrives with its ticks in the same
+            // pull (or, from a track change's re-read, was just created and has none).
+            val localId = if (existing == null) {
                 trackDao.insert(
                     TrackEntity(
                         serverId = dto.id,
@@ -298,6 +318,10 @@ class SyncManager @Inject constructor(
                         sortOrder = dto.sortOrder,
                         private = dto.private,
                         archivedAt = dto.archivedAt,
+                        unit = dto.unit,
+                        decimalPlaces = dto.decimalPlaces,
+                        allowNegative = dto.allowNegative,
+                        orderedScale = dto.orderedScale,
                     )
                 )
             } else if (!existing.dirty) {
@@ -309,9 +333,17 @@ class SyncManager @Inject constructor(
                         sortOrder = dto.sortOrder,
                         private = dto.private,
                         archivedAt = dto.archivedAt,
+                        unit = dto.unit,
+                        decimalPlaces = dto.decimalPlaces,
+                        allowNegative = dto.allowNegative,
+                        orderedScale = dto.orderedScale,
                     )
                 )
+                existing.localId
+            } else {
+                continue
             }
+            reconcileOptions(localId, dto)
         }
 
         // Tracks present locally but missing from server → drop unless dirty (Phase 3 handles push).
@@ -332,6 +364,15 @@ class SyncManager @Inject constructor(
         }
     }
 
+    /** Replaces a track's options when the server's list differs (a rename changes one label). */
+    private suspend fun reconcileOptions(trackLocalId: Long, dto: TrackDto) {
+        val wanted = dto.options.orEmpty().map { TrackOptionEntity(trackLocalId, it.value, it.label) }.sortedBy { it.place }
+        val current = trackOptionDao.getForTrack(trackLocalId)
+        if (current == wanted) return
+        trackOptionDao.deleteForTrack(trackLocalId)
+        if (wanted.isNotEmpty()) trackOptionDao.insertAll(wanted.distinctBy { it.place })
+    }
+
     private suspend fun reconcileTicks(remote: List<TickDto>, from: String, to: String) {
         val tracksByServerId = trackDao.getAll().associateBy { it.serverId }
         // Includes rows marked deleted, so a queued untick is seen and skipped as dirty.
@@ -342,6 +383,13 @@ class SyncManager @Inject constructor(
             val track = tracksByServerId[dto.trackId] ?: continue
             val key = track.localId to dto.date
             seenKeys += key
+            // Per type: a Number's 10.4 is 10400 thousandths, not a marker. A value that can't be
+            // read is skipped (the local row, if any, left as it is) rather than stored wrong.
+            val value = tickValueFor(TrackType.fromWire(track.type), dto.value)
+            if (value == null) {
+                Log.w(TAG, "Skipping a ${track.type} tick whose value can't be read")
+                continue
+            }
             val existing = localInRange[key]
             if (existing == null) {
                 tickDao.upsert(
@@ -349,14 +397,14 @@ class SyncManager @Inject constructor(
                         serverId = dto.id,
                         trackLocalId = track.localId,
                         date = dto.date,
-                        value = dto.value,
+                        value = value,
                     )
                 )
             } else if (!existing.dirty) {
                 tickDao.update(
                     existing.copy(
                         serverId = dto.id,
-                        value = dto.value,
+                        value = value,
                         deleted = false,
                     )
                 )
@@ -402,4 +450,29 @@ class SyncManager @Inject constructor(
             }
         }
     }
+}
+
+private const val TAG = "SyncManager"
+
+/**
+ * A tick's value as Room stores it for a track of [type]: yes/no and counter as an integer, a
+ * Number in whole thousandths ([numberFromWire], from the number's own text), a Choice as its
+ * place, and a type this Tickdroid doesn't know as the lenient 1/0 marker. Null when a Number or
+ * Choice value can't be read; the caller skips it. Shared by the pull and the push's settle.
+ */
+internal fun tickValueFor(type: TrackType, raw: JsonElement?): Int? = when (type) {
+    TrackType.Number -> (raw as? JsonPrimitive)?.takeUnless { it is JsonNull || it.isString }?.let(::numberFromWire)
+    TrackType.Choice -> (raw as? JsonPrimitive)?.takeUnless { it is JsonNull || it.isString }?.intOrNull?.takeIf { it > 0 }
+    TrackType.YesNo, TrackType.Counter, is TrackType.Unknown -> lenientTickValue(raw ?: JsonNull)
+}
+
+/**
+ * The stats answer's `maxValue` and `minValue` as `track_runs` stores them, per type: a counter's
+ * maximum as an integer; a Number's both in thousandths (0 and null with no entries); an ordered
+ * scale's as places (null, so 0, on a plain list).
+ */
+internal fun statsRange(type: TrackType, dto: StatsDto): Pair<Int, Int?> = when (type) {
+    TrackType.Number -> (tickValueFor(type, dto.maxValue) ?: 0) to tickValueFor(type, dto.minValue)
+    TrackType.Choice -> (tickValueFor(type, dto.maxValue) ?: 0) to tickValueFor(type, dto.minValue)
+    else -> ((dto.maxValue as? JsonPrimitive)?.takeUnless { it is JsonNull }?.intOrNull ?: 0) to null
 }

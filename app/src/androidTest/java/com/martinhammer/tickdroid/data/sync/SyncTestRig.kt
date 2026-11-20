@@ -150,6 +150,7 @@ class SyncTestRig {
         noteDao = db.noteDao(),
         trackRunDao = db.trackRunDao(),
         clock = clock,
+        trackOptionDao = db.trackOptionDao(),
     )
 
     /** The next request that isn't the capabilities call every pull starts with. */

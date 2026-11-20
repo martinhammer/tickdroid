@@ -1,5 +1,7 @@
 package com.martinhammer.tickdroid.ui.journal
 
+import com.martinhammer.tickdroid.domain.TrackPrefs
+import com.martinhammer.tickdroid.domain.CellLabel
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -216,5 +218,63 @@ class TickCellInteractionTest {
             }
         }
         rule.onNodeWithTag("noteDot", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    // Number and Choice: a tap opens the entry, never writes.
+
+    private val runTrack = Track(localId = 3L, serverId = 12L, name = "Run", type = TrackType.Number, sortOrder = 2, private = false, unit = "km", decimalPlaces = 1)
+    private val moodTrack = Track(localId = 4L, serverId = 13L, name = "Mood", type = TrackType.Choice, sortOrder = 3, private = false, options = listOf("Happy", "Sad"))
+
+    private fun valueCell(track: Track, tick: Tick?, editable: Boolean = true, prefs: TrackPrefs? = null, onOpen: () -> Unit = {}) {
+        rule.setContent {
+            TickdroidTheme {
+                TickCell(
+                    track = track,
+                    tick = tick,
+                    prefs = prefs,
+                    cellSize = 56.dp,
+                    editable = editable,
+                    onToggleBoolean = { fail("boolean not expected") },
+                    onAdjustCounter = { fail("counter not expected") },
+                    onOpenEntry = onOpen,
+                )
+            }
+        }
+    }
+
+    @Test fun tap_number_opensTheEntry_andShowsItsValue() {
+        var opened = 0
+        valueCell(runTrack, Tick(3L, today, 10400)) { opened++ }
+        rule.onNodeWithText("10.4").assertExists()
+        rule.onRoot().performClick()
+        assertEquals(1, opened)
+    }
+
+    @Test fun lockedOrAwaitingSync_neverOpens() {
+        valueCell(runTrack.copy(awaitingSync = true), null) { fail("must not open while awaiting sync") }
+        rule.onRoot().performClick()
+        rule.onNodeWithText("…").assertDoesNotExist()
+    }
+
+    @Test fun locked_number_neverOpens_andHasNoHint() {
+        valueCell(runTrack, null, editable = false) { fail("must not open on a locked day") }
+        rule.onRoot().performClick()
+        rule.onNodeWithText("…").assertDoesNotExist()
+    }
+
+    @Test fun editableEmptyNumber_showsTheHint() {
+        valueCell(runTrack, null)
+        rule.onNodeWithText("…").assertExists()
+    }
+
+    @Test fun choice_showsTheShortLabel_orThePlaceCircle() {
+        valueCell(moodTrack, Tick(4L, today, 1))
+        rule.onNodeWithText("HA").assertExists()
+    }
+
+    @Test fun choice_withPlaceNumber_drawsTheCircle() {
+        valueCell(moodTrack, Tick(4L, today, 2), prefs = TrackPrefs(cellLabel = CellLabel.Place))
+        rule.onNodeWithTag("placeCircle", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("2", useUnmergedTree = true).assertExists()
     }
 }

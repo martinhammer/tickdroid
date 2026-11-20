@@ -200,10 +200,12 @@ fun TracksSettingsScreen(
         NewTrackSheet(
             sheetState = sheetState,
             adding = state.adding,
-            onAdd = { name, type, private ->
-                if (online) viewModel.create(name, type, private) else offlineToast()
+            onAdd = { name, type, private, settings ->
+                if (online) viewModel.create(name, type, private, settings) else offlineToast()
             },
             onDismiss = { if (!state.adding) showNewTrack = false },
+            numberSupported = state.numberSupported,
+            choiceSupported = state.choiceSupported,
         )
     }
 
@@ -422,7 +424,13 @@ private fun ArchivedHeader(count: Int, open: Boolean, onToggle: () -> Unit) {
     }
 }
 
-/** An archived track: greyed, no handle, no chevron. A tap opens the archived dialog. */
+/** Where an active row's badge starts: its 8dp padding, the 48dp handle and the 8dp gap after it. */
+private val ActiveBadgeStart = 8.dp + 48.dp + 8.dp
+
+/**
+ * An archived track: greyed, no handle, no chevron. A tap opens the archived dialog. The badge
+ * starts where an active row's does, leaving the handle's place empty, so the badges line up.
+ */
 @Composable
 private fun ArchivedTrackRow(
     row: TrackRowState,
@@ -437,7 +445,7 @@ private fun ArchivedTrackRow(
             .clickable(onClickLabel = "Restore or delete", onClick = onClick)
             .semantics(mergeDescendants = true) {}
             .testTag("archived-${track.localId}")
-            .padding(start = 24.dp, end = 24.dp, top = 6.dp, bottom = 6.dp),
+            .padding(start = ActiveBadgeStart, end = 24.dp, top = 6.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TrackBadge(track = track, prefs = row.prefs, muted = true)
@@ -540,6 +548,8 @@ private fun TrackRow(
 internal fun trackTypeLabel(type: TrackType): String = when (type) {
     TrackType.YesNo -> "Yes/No"
     TrackType.Counter -> "Counter"
+    TrackType.Number -> "Number"
+    TrackType.Choice -> "Choice"
     is TrackType.Unknown -> UPDATE_REQUIRED
 }
 

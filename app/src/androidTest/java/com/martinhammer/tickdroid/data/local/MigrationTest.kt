@@ -149,4 +149,66 @@ class MigrationTest {
             }
         }
     }
+
+    @Test fun migrate5To6_deletesNumberAndChoiceMarkers_locksThoseTracks_keepsTheRest() {
+        helper.createDatabase(dbName, 5).use { db ->
+            listOf(
+                "(1, 11, 'Gym', 'boolean')",
+                "(2, 12, 'Coffee', 'counter')",
+                "(3, 13, 'Run', 'number')",
+                "(4, 14, 'Mood', 'choice')",
+            ).forEach {
+                db.execSQL(
+                    "INSERT INTO tracks (localId, serverId, name, type, sortOrder, private, archivedAt, dirty, deleted, updatedAtLocal) " +
+                        "VALUES ${it.dropLast(1)}, 0, 0, NULL, 0, 0, 0)",
+                )
+            }
+            (1..4).forEach { track ->
+                db.execSQL(
+                    "INSERT INTO ticks (serverId, trackLocalId, date, value, dirty, deleted, updatedAtLocal, pendingDelta, sentDelta, sentKey) " +
+                        "VALUES (${100 + track}, $track, '2026-11-17', ${if (track == 2) 4 else 1}, 0, 0, 0, NULL, NULL, NULL)",
+                )
+            }
+            db.execSQL("INSERT INTO notes (trackLocalId, date, text, dirty, baseText) VALUES (3, '2026-11-17', '5k', 0, NULL)")
+            db.execSQL("INSERT INTO track_prefs (serverId, colorKey, emoji) VALUES (13, 'blue', NULL)")
+            db.execSQL("INSERT INTO track_runs (trackLocalId, asOf, isStreak, length, upToYesterday, maxValue) VALUES (3, '2026-11-17', 1, 2, 0, 1)")
+        }
+
+        // Validates the result against 6.json.
+        helper.runMigrationsAndValidate(dbName, 6, true, MIGRATION_5_6).use { db ->
+            db.query("SELECT trackLocalId, value FROM ticks ORDER BY trackLocalId").use { c ->
+                val rows = buildList { while (c.moveToNext()) add(c.getLong(0) to c.getInt(1)) }
+                assertEquals(listOf(1L to 1, 2L to 4), rows)
+            }
+            db.query("SELECT localId FROM tracks WHERE awaitingSync = 1 ORDER BY localId").use { c ->
+                val locked = buildList { while (c.moveToNext()) add(c.getLong(0)) }
+                assertEquals(listOf(3L, 4L), locked)
+            }
+            db.query("SELECT unit, decimalPlaces, allowNegative, orderedScale FROM tracks WHERE localId = 3").use { c ->
+                assertTrue(c.moveToFirst())
+                (0..3).forEach { assertTrue(c.isNull(it)) }
+            }
+            db.query("SELECT text FROM notes").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals("5k", c.getString(0))
+            }
+            db.query("SELECT colorKey, cellLabel FROM track_prefs").use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals("blue", c.getString(0))
+                assertTrue(c.isNull(1))
+            }
+            db.query("SELECT minValue FROM track_runs").use { c ->
+                assertTrue(c.moveToFirst())
+                assertTrue(c.isNull(0))
+            }
+            // track_options exists and goes with its track.
+            db.execSQL("PRAGMA foreign_keys = ON")
+            db.execSQL("INSERT INTO track_options (trackLocalId, place, label) VALUES (4, 1, 'Happy')")
+            db.execSQL("DELETE FROM tracks WHERE localId = 4")
+            db.query("SELECT COUNT(*) FROM track_options").use { c ->
+                c.moveToFirst()
+                assertEquals(0, c.getInt(0))
+            }
+        }
+    }
 }

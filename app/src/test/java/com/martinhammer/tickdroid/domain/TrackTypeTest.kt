@@ -22,4 +22,10 @@ class TrackTypeTest {
             assertEquals(it, TrackType.fromWire(it).wireValue)
         }
     }
+
+    @Test fun `number and choice map to their types, matching exactly`() {
+        assertEquals(TrackType.Number, TrackType.fromWire("number"))
+        assertEquals(TrackType.Choice, TrackType.fromWire("choice"))
+        assertEquals(TrackType.Unknown("Number"), TrackType.fromWire("Number"))
+    }
 }

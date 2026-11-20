@@ -5,8 +5,11 @@ import android.icu.text.RelativeDateTimeFormatter
 import android.icu.text.SimpleDateFormat
 import android.icu.util.ULocale
 import androidx.compose.ui.graphics.Color
+import com.martinhammer.tickdroid.domain.Tick
+import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackColor
 import com.martinhammer.tickdroid.domain.TrackRun
+import com.martinhammer.tickdroid.domain.TrackType
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -116,6 +119,39 @@ fun levelFor(value: Int, isCounter: Boolean, maxValue: Int): Int {
     if (!isCounter) return 2
     if (maxValue <= 4) return minOf(4, value)
     return maxOf(1, minOf(4, Math.ceil(value.toDouble() / maxValue * 4).toInt()))
+}
+
+/**
+ * The web's newer `levelFor` for a value on a range (server spec row 13): a Number between the
+ * track's lowest and highest, or an ordered scale's place between 1 and the number of options.
+ * `max(1, ceil(4 × (value − lowest) / (highest − lowest)))`, in whole numbers (a Number's are
+ * thousandths), so the lowest reading is level 1, not empty: 0 and negative readings are entries.
+ * Level 2 when the range is unknown or empty (lowest equals highest); 0 with no entry.
+ */
+fun valueLevel(value: Int?, lowest: Int?, highest: Int?): Int {
+    if (value == null) return 0
+    if (lowest == null || highest == null || highest <= lowest) return 2
+    val above = value.toLong() - lowest
+    val span = highest.toLong() - lowest
+    val ceil = if (above <= 0) 0L else (4 * above + span - 1) / span
+    return ceil.toInt().coerceIn(1, 4)
+}
+
+/**
+ * A day's square level for [track]: [tick] null is no entry. Yes/no, counter and unknown types as
+ * [levelFor]; a Number by [valueLevel] on its range from the stats ([TrackRun.minValue] and
+ * [TrackRun.maxValue]); a Choice on an ordered scale by its place, a plain list at level 2 (as
+ * yes/no).
+ */
+fun squareLevel(track: Track, tick: Tick?, run: TrackRun?): Int = when (track.type) {
+    TrackType.Number -> valueLevel(tick?.value, run?.minValue, run?.maxValue)
+    TrackType.Choice -> when {
+        tick == null -> 0
+        track.orderedScale == true -> valueLevel(tick.value, 1, track.options.size)
+        else -> 2
+    }
+    TrackType.Counter -> levelFor(tick?.value ?: 0, isCounter = true, maxValue = run?.maxValue ?: 0)
+    TrackType.YesNo, is TrackType.Unknown -> levelFor(tick?.value ?: 0, isCounter = false, maxValue = 0)
 }
 
 /**

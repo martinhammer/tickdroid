@@ -64,6 +64,7 @@ class SyncCoordinatorTest {
             noteDao = db.noteDao(),
             trackRunDao = db.trackRunDao(),
             clock = mockk(relaxed = true),
+            trackOptionDao = db.trackOptionDao(),
         )
         coordinator = SyncCoordinator(auth, scheduler, syncManager, db, prefs, widgetStore, serverFeatures)
         coordinator.start()

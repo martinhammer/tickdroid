@@ -85,6 +85,97 @@ internal fun RenameTrackDialog(
 }
 
 /**
+ * "Change unit" (T11), built on [RenameTrackDialog]: opens with the unit selected and the
+ * keyboard up; an empty unit is allowed (it removes the unit). While [saving], Save shows a
+ * spinner; on failure the caller leaves it open, so Save retries.
+ */
+@Composable
+internal fun ChangeUnitDialog(
+    currentUnit: String,
+    saving: Boolean,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(currentUnit, TextRange(0, currentUnit.length)))
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("Change unit") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.copy(text = capTrackName(it.text)) },
+                label = { Text("Unit") },
+                singleLine = true,
+                enabled = !saving,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { if (!saving) onSave(value.text) }),
+                modifier = Modifier.focusRequester(focusRequester).testTag("unitField"),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(value.text) }, enabled = !saving) {
+                if (saving) ButtonSpinner() else Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") }
+        },
+    )
+}
+
+/**
+ * "Rename option" (T10), like [RenameTrackDialog]: the field is labelled with the option's place
+ * ("Option 2") and opens with its label selected. Save is disabled while it is blank; on failure
+ * (the server's message, a duplicate label say) the caller leaves it open.
+ */
+@Composable
+internal fun RenameOptionDialog(
+    place: Int,
+    currentLabel: String,
+    saving: Boolean,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var value by rememberSaveable(place, stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(currentLabel, TextRange(0, currentLabel.length)))
+    }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    val canSave = value.text.isNotBlank() && !saving
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text("Rename option") },
+        text = {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it.copy(text = capTrackName(it.text)) },
+                label = { Text("Option $place") },
+                singleLine = true,
+                enabled = !saving,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Sentences,
+                    imeAction = ImeAction.Done,
+                ),
+                keyboardActions = KeyboardActions(onDone = { if (canSave) onSave(value.text) }),
+                modifier = Modifier.focusRequester(focusRequester).testTag("optionField"),
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = { onSave(value.text) }, enabled = canSave) {
+                if (saving) ButtonSpinner() else Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !saving) { Text("Cancel") }
+        },
+    )
+}
+
+/**
  * Delete confirmation. While [deleting] (or [archiving]), the busy button shows a spinner and all
  * buttons are disabled. [onArchiveInstead] non-null (an active track, on a server that can
  * archive) adds a second paragraph and an "Archive instead" button at the start of the row,

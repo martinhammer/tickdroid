@@ -54,6 +54,7 @@ import com.martinhammer.tickdroid.ui.common.CompactHeightThresholdDp
 import com.martinhammer.tickdroid.ui.common.HelpSheet
 import com.martinhammer.tickdroid.ui.common.todayHelpParagraphs
 import com.martinhammer.tickdroid.ui.journal.ChipClearance
+import com.martinhammer.tickdroid.ui.journal.EntryLayer
 import com.martinhammer.tickdroid.ui.journal.JournalEmptyState
 import com.martinhammer.tickdroid.ui.journal.JumpToTodayChip
 import com.martinhammer.tickdroid.ui.journal.LockedDayMessage
@@ -208,8 +209,8 @@ fun TodayScreen(
                 } else {
                     HorizontalPager(
                         state = pagerState,
-                        // One card at a time: while it is open the days don't swipe.
-                        userScrollEnabled = state.editing == null,
+                        // One card at a time: while it (or the entry) is open the days don't swipe.
+                        userScrollEnabled = state.editing == null && state.entry == null,
                         key = { it },
                         modifier = Modifier
                             .fillMaxSize()
@@ -221,6 +222,7 @@ fun TodayScreen(
                             onToggleBoolean = viewModel::toggleBoolean,
                             onAdjustCounter = viewModel::adjustCounter,
                             onOpenNote = viewModel::openNote,
+                            onOpenEntry = viewModel::openEntry,
                         )
                     }
                 }
@@ -248,6 +250,16 @@ fun TodayScreen(
             // The track went (deleted elsewhere, or made hidden): nothing to write to.
             LaunchedEffect(editing) { viewModel.closeNote() }
         }
+        EntryLayer(
+            entry = state.entry,
+            tracks = state.tracks,
+            loaded = state.loaded,
+            trackPrefs = state.trackPrefs,
+            ticks = state.ticks,
+            today = state.today,
+            onSave = viewModel::saveValue,
+            onClose = viewModel::closeEntry,
+        )
     }
 
     if (showHelp) {
@@ -262,6 +274,7 @@ private fun TodayPage(
     onToggleBoolean: (trackLocalId: Long, date: LocalDate) -> Unit,
     onAdjustCounter: (trackLocalId: Long, date: LocalDate, delta: Int) -> Unit,
     onOpenNote: (trackLocalId: Long) -> Unit,
+    onOpenEntry: (trackLocalId: Long) -> Unit,
 ) {
     val editable = state.isEditable(day)
     val context = LocalContext.current
@@ -284,6 +297,7 @@ private fun TodayPage(
                 onToggleBoolean = { onToggleBoolean(track.localId, day) },
                 onAdjustCounter = { delta -> onAdjustCounter(track.localId, day, delta) },
                 onOpenNote = { onOpenNote(track.localId) },
+                onOpenEntry = { onOpenEntry(track.localId) },
                 onLockedTap = {
                     android.widget.Toast.makeText(context, LockedDayMessage, android.widget.Toast.LENGTH_SHORT).show()
                 },

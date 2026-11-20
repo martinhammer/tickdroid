@@ -2,4 +2,14 @@
 <resources>
 
     <style name="Theme.Tickdroid" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <!-- The widgets' Number and Choice window (ValueEntryActivity): over the home screen, no
+         window background, no title, no open or close animation. Compose draws the scrim. -->
+    <style name="Theme.Tickdroid.Translucent" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

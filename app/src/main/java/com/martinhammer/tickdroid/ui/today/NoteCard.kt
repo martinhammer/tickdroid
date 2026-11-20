@@ -5,7 +5,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.union
@@ -47,7 +45,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -62,6 +59,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import com.martinhammer.tickdroid.domain.Track
 import com.martinhammer.tickdroid.domain.TrackPrefs
 import com.martinhammer.tickdroid.domain.cleanNoteInput
+import com.martinhammer.tickdroid.ui.common.CloseWithKeyboard
 import com.martinhammer.tickdroid.ui.common.TrackBadge
 import java.time.LocalDate
 
@@ -122,29 +120,6 @@ internal fun NoteCardLayer(
                 .align(Alignment.BottomCenter)
                 .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
         )
-    }
-}
-
-/**
- * The keyboard going from shown to hidden closes the card: Android's first Back closes the
- * keyboard and never reaches the app, so without this it would take two. Only while the screen
- * is resumed: going to the home screen also hides the keyboard, and the card must stay then. A
- * physical keyboard never shows the soft one, so the card then stays until Done, Back or a tap
- * outside.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CloseWithKeyboard(onClosed: () -> Unit) {
-    val imeVisible = WindowInsets.isImeVisible
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var wasVisible by remember { mutableStateOf(false) }
-    val currentOnClosed by rememberUpdatedState(onClosed)
-    LaunchedEffect(imeVisible) {
-        when {
-            imeVisible -> wasVisible = true
-            wasVisible && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) -> currentOnClosed()
-            else -> wasVisible = false
-        }
     }
 }
 

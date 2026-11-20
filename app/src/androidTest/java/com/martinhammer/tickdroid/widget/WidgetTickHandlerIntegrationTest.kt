@@ -35,7 +35,7 @@ class WidgetTickHandlerIntegrationTest {
             override fun today() = today
             override fun nowMillis() = 0L
         }
-        handler = WidgetTickHandler(TrackRepository(rig.db.trackDao()), tickRepository, rig.authRepository, clock)
+        handler = WidgetTickHandler(TrackRepository(rig.db.trackDao(), rig.db.trackOptionDao()), tickRepository, rig.authRepository, clock)
     }
 
     @After fun tearDown() = rig.shutdown()

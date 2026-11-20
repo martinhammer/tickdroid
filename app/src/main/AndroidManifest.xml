@@ -107,6 +107,17 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+        <!-- The widgets' Number and Choice window: started directly by a widget cell (not a
+             trampoline), in its own task like setup, so closing it returns to the home screen
+             and it never shows in Recents. adjustResize: the card follows the keyboard through
+             WindowInsets.ime, as in MainActivity. -->
+        <activity
+            android:name=".widget.ValueEntryActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Tickdroid.Translucent"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 
 </manifest>

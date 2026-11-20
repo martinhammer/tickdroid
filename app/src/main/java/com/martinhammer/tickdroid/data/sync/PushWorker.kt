@@ -21,6 +21,7 @@ import com.martinhammer.tickdroid.data.time.Clock
 import com.martinhammer.tickdroid.domain.MAX_NOTE_CHARS
 import com.martinhammer.tickdroid.domain.NotePushPlan
 import com.martinhammer.tickdroid.domain.TrackType
+import com.martinhammer.tickdroid.domain.numberToWire
 import com.martinhammer.tickdroid.domain.planNotePush
 import androidx.room.withTransaction
 import dagger.assisted.Assisted
@@ -44,6 +45,8 @@ import kotlin.coroutines.cancellation.CancellationException
  *   out and resent unchanged until an answer arrives; the server answers a repeat as it answered
  *   the first. Otherwise, and for a change queued before v4 (`pendingDelta == null`): `set` with
  *   the absolute value.
+ * - **Number** and **Choice**: `set` with the value (a Number with a point, a Choice's place), or
+ *   empty to clear the day. Absolute, so safe to repeat: no read first and no key.
  *
  * Then every dirty note (capability `notes`; without it they stay queued): read the server's note
  * for the day and send what [planNotePush] says. The phone's version when the server's note is
@@ -222,6 +225,14 @@ class PushWorker @AssistedInject constructor(
         when (val type = TrackType.fromWire(track.type)) {
             TrackType.Counter -> pushCounter(serverId, entity)
             TrackType.YesNo -> pushBoolean(serverId, entity)
+            // Taps can't write a track still waiting for its first sync, so only a bug queues
+            // one: drop it unsent, as for an unknown type, so the chip can't stick.
+            TrackType.Number, TrackType.Choice -> if (track.awaitingSync) {
+                Log.w(TAG, "Dropping a tick on a ${type.wireValue} track awaiting its first sync")
+                tickDao.deleteById(entity.localId)
+            } else {
+                pushValue(serverId, type, entity)
+            }
             // Read-only, so only a bug can queue one. Drop it unsent rather than guess what the
             // server would make of it, or the "unsaved changes" chip would stay on for good.
             is TrackType.Unknown -> {
@@ -305,6 +316,21 @@ class PushWorker @AssistedInject constructor(
             if (response.ticked != desiredTicked) return
         }
         settleYesNo(entity.localId, sent = desiredTicked, serverTicked = desiredTicked)
+    }
+
+    /**
+     * A Number or Choice day: `set` with the value (a Number with a point and no grouping, a
+     * Choice's place), or "" when the row is marked for removal. The answer becomes the row's
+     * value ([settleValue]).
+     */
+    private suspend fun pushValue(serverId: Long, type: TrackType, entity: TickEntity) {
+        val value = when {
+            entity.deleted -> ""
+            type == TrackType.Number -> numberToWire(entity.value)
+            else -> entity.value.toString()
+        }
+        val response = api.setValue(trackId = serverId, date = entity.date, value = value).ocs.data
+        settleValue(entity, answer = tickValueFor(type, response.value))
     }
 
     /**
@@ -399,7 +425,31 @@ class PushWorker @AssistedInject constructor(
         }
     }
 
-    /** Clean at the server's [value]; at 0 the row goes. */
+    /**
+     * A Number or Choice `set` answered [answer] (null: the day is empty). Settles only a row whose
+     * value and `deleted` are still what was sent; one changed during the request stays dirty for
+     * the next run. Never deletes at 0 (unlike [settleTo]): a Number of 0 is an entry.
+     */
+    private suspend fun settleValue(sent: TickEntity, answer: Int?) = transaction {
+        val current = tickDao.findById(sent.localId) ?: return@transaction
+        if (current.value != sent.value || current.deleted != sent.deleted) return@transaction
+        if (answer == null) {
+            tickDao.deleteById(current.localId)
+        } else {
+            tickDao.update(
+                current.copy(
+                    value = answer,
+                    dirty = false,
+                    deleted = false,
+                    pendingDelta = null,
+                    sentDelta = null,
+                    sentKey = null,
+                ),
+            )
+        }
+    }
+
+    /** Clean at the server's [value]; at 0 the row goes. Yes/no and counter only. */
     private suspend fun settleTo(current: TickEntity, value: Int) {
         if (value == 0) {
             tickDao.deleteById(current.localId)

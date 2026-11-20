@@ -88,6 +88,9 @@ fun TrackDetailScreen(
     var showDelete by rememberSaveable { mutableStateOf(false) }
     var showArchive by rememberSaveable { mutableStateOf(false) }
     var showPicker by rememberSaveable { mutableStateOf(false) }
+    var showUnit by rememberSaveable { mutableStateOf(false) }
+    // The option being renamed, by place.
+    var renamingPlace by rememberSaveable { mutableStateOf<Int?>(null) }
     val offlineToast = { Toast.makeText(context, OfflineMessage, Toast.LENGTH_SHORT).show() }
     val toast = { text: String -> Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
 
@@ -111,6 +114,8 @@ fun TrackDetailScreen(
                     showDelete = false
                     toast(event.text)
                 }
+                TrackDetailEvent.UnitDone -> showUnit = false
+                TrackDetailEvent.OptionRenamed -> renamingPlace = null
                 is TrackDetailEvent.Toast -> toast(event.text)
             }
         }
@@ -188,6 +193,15 @@ fun TrackDetailScreen(
                     archiveSupported = state.archiveSupported,
                     onArchive = { showArchive = true },
                     onOfflineTap = offlineToast,
+                    typeSettings = state.typeSettings,
+                    typeActions = TypeSettingsActions(
+                        onChangeUnit = { if (online) showUnit = true else offlineToast() },
+                        onDecimalPlacesChange = { if (online) viewModel.setDecimalPlaces(it) else offlineToast() },
+                        onAllowNegativeChange = { if (online) viewModel.setAllowNegative(it) else offlineToast() },
+                        onRenameOption = { if (online) renamingPlace = it else offlineToast() },
+                        onOrderedScaleChange = { if (online) viewModel.setOrderedScale(it) else offlineToast() },
+                        onCellLabelChange = viewModel::setCellLabel,
+                    ),
                 )
             }
         }
@@ -199,6 +213,24 @@ fun TrackDetailScreen(
             saving = state.renaming,
             onSave = { if (online) viewModel.rename(it) else offlineToast() },
             onDismiss = { showRename = false },
+        )
+    }
+    if (showUnit && track != null) {
+        ChangeUnitDialog(
+            currentUnit = track.unit.orEmpty(),
+            saving = state.savingUnit,
+            onSave = { if (online) viewModel.setUnit(it) else offlineToast() },
+            onDismiss = { showUnit = false },
+        )
+    }
+    val place = renamingPlace
+    if (place != null && track != null) {
+        RenameOptionDialog(
+            place = place,
+            currentLabel = track.options.getOrNull(place - 1).orEmpty(),
+            saving = state.renamingOption == place,
+            onSave = { if (online) viewModel.renameOption(place, it) else offlineToast() },
+            onDismiss = { renamingPlace = null },
         )
     }
     if (showDelete && track != null) {
@@ -294,6 +326,8 @@ internal fun TrackDetailContent(
     onOfflineTap: () -> Unit,
     archiveSupported: Boolean = false,
     onArchive: () -> Unit = {},
+    typeSettings: TypeSettingsState = TypeSettingsState(),
+    typeActions: TypeSettingsActions = TypeSettingsActions(),
 ) {
     val unsynced = track.serverId == null
 
@@ -325,6 +359,19 @@ internal fun TrackDetailContent(
             )
         }
         Spacer(Modifier.height(24.dp))
+
+        if (track.entersValue && !track.awaitingSync) {
+            TypeSettingsSection(
+                track = track,
+                prefs = prefs,
+                online = online,
+                serverEditable = serverEditable,
+                pending = typeSettings,
+                actions = typeActions,
+                onOfflineTap = onOfflineTap,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
 
         SectionLabel(label = "Custom colour", subtitle = "Set custom track colour. Scroll for more options.")
         Spacer(Modifier.height(12.dp))

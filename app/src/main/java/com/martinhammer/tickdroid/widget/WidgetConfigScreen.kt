@@ -287,7 +287,7 @@ private fun <T> SegmentedSetting(title: String, options: List<Pair<T, String>>, 
  * the label measures itself narrower by the mark and its gap. Covered by SegmentLabelTest.
  */
 @Composable
-private fun SegmentLabel(text: String, besideCheckMark: Boolean) {
+internal fun SegmentLabel(text: String, besideCheckMark: Boolean) {
     val room = if (besideCheckMark) SegmentedButtonDefaults.IconSize + CheckMarkGap else 0.dp
     Text(
         text = text,

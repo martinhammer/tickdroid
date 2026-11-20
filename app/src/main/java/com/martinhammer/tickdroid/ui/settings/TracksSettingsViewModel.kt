@@ -6,6 +6,7 @@ import com.martinhammer.tickdroid.data.network.NetworkMonitor
 import com.martinhammer.tickdroid.data.repository.TrackPrefsRepository
 import com.martinhammer.tickdroid.data.repository.TrackRepository
 import com.martinhammer.tickdroid.data.sync.ServerFeatures
+import com.martinhammer.tickdroid.data.sync.NewTrackSettings
 import com.martinhammer.tickdroid.data.sync.TrackChange
 import com.martinhammer.tickdroid.data.sync.TrackEditor
 import com.martinhammer.tickdroid.domain.Track
@@ -43,6 +44,10 @@ data class TracksSettingsUiState(
     /** A create is on its way: the sheet's "Add track" shows a spinner. */
     val adding: Boolean = false,
     val archiveSupported: Boolean = false,
+    /** New track offers Number (server flag `numberTracks`). */
+    val numberSupported: Boolean = false,
+    /** New track offers Choice (server flag `choiceTracks`). */
+    val choiceSupported: Boolean = false,
     /** The archived track whose restore is on its way; its dialog shows a spinner. */
     val restoringServerId: Long? = null,
     /** The archived track whose delete is on its way; its confirm shows a spinner. */
@@ -119,7 +124,8 @@ class TracksSettingsViewModel @Inject constructor(
         pendingOrder,
         busy,
         serverFeatures.archivedTracks,
-    ) { all, pending, busy, archiveSupported ->
+        combine(serverFeatures.numberTracks, serverFeatures.choiceTracks) { n, c -> n to c },
+    ) { all, pending, busy, archiveSupported, (numberSupported, choiceSupported) ->
         val (archived, active) = all.orEmpty().partition { it.track.archived }
         TracksSettingsUiState(
             rows = applyOrder(active, pending),
@@ -128,6 +134,8 @@ class TracksSettingsViewModel @Inject constructor(
             loaded = all != null,
             adding = busy.adding,
             archiveSupported = archiveSupported,
+            numberSupported = numberSupported,
+            choiceSupported = choiceSupported,
             restoringServerId = busy.restoringServerId,
             deletingServerId = busy.deletingServerId,
         )
@@ -143,11 +151,11 @@ class TracksSettingsViewModel @Inject constructor(
     private val _events = Channel<TracksSettingsEvent>(Channel.BUFFERED)
     val events: Flow<TracksSettingsEvent> = _events.receiveAsFlow()
 
-    fun create(name: String, type: TrackType, private: Boolean) {
+    fun create(name: String, type: TrackType, private: Boolean, settings: NewTrackSettings = NewTrackSettings()) {
         if (busy.value.adding || !online.value || cleanTrackName(name) == null) return
         busy.update { it.copy(adding = true) }
         viewModelScope.launch {
-            when (val result = trackEditor.create(name, type, private)) {
+            when (val result = trackEditor.create(name, type, private, settings)) {
                 is TrackChange.Created -> _events.send(TracksSettingsEvent.Created(result.serverId))
                 is TrackChange.CreatedNotPrivate -> {
                     _events.send(TracksSettingsEvent.Created(result.serverId))

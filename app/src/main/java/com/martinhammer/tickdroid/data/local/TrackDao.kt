@@ -34,4 +34,8 @@ interface TrackDao {
 
     @Query("DELETE FROM tracks WHERE localId = :localId")
     suspend fun deleteById(localId: Long)
+
+    /** A successful pull has brought these tracks' values: they can be written again. */
+    @Query("UPDATE tracks SET awaitingSync = 0 WHERE awaitingSync = 1 AND serverId IN (:serverIds)")
+    suspend fun clearAwaitingSync(serverIds: List<Long>)
 }
