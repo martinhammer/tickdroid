@@ -1,6 +1,7 @@
 package com.martinhammer.tickdroid.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,7 +19,6 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -87,19 +87,43 @@ private fun NumberSettings(
     onOfflineTap: () -> Unit,
 ) {
     Column(Modifier.testTag("numberSettings")) {
-        // Unit: the value and its pencil at the end, opening "Change unit".
+        // Unit: the value and a pencil at the end; the whole row opens "Change unit", as Decimal places opens its menu.
         OfflineGuard(online = online, onBlockedTap = onOfflineTap) { enabled ->
-            SettingRow(label = "Unit", enabled = enabled && serverEditable) {
-                Text(
-                    track.unit.orEmpty(),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                IconButton(onClick = actions.onChangeUnit, enabled = enabled && serverEditable) {
-                    Icon(Icons.Outlined.Edit, contentDescription = "Change unit", modifier = Modifier.size(18.dp))
+            val canChange = enabled && serverEditable
+            SettingRow(
+                label = "Unit",
+                enabled = canChange,
+                onClick = actions.onChangeUnit,
+                onClickLabel = "Change unit",
+                modifier = Modifier.testTag("unitRow"),
+            ) {
+                // Its own weighted, end-aligned row: the label is weighted too, so a weighted Text
+                // here would split the free space with it and float the unit mid-row.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(
+                        track.unit.orEmpty(),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    // Drawn plain, not as an IconButton, so it ends at the edge like Decimal places' ▾.
+                    Icon(
+                        Icons.Outlined.Edit,
+                        contentDescription = null,
+                        tint = if (canChange) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        },
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
             }
         }
@@ -214,6 +238,7 @@ private fun SettingRow(
     enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    onClickLabel: String? = null,
     end: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
 ) {
     Row(
@@ -222,7 +247,7 @@ private fun SettingRow(
             .widthIn(max = MaxContentWidth)
             .fillMaxWidth()
             .heightIn(min = 48.dp)
-            .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClick = onClick) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(enabled = enabled, onClickLabel = onClickLabel, onClick = onClick) else Modifier)
             .padding(vertical = 4.dp),
     ) {
         Text(
