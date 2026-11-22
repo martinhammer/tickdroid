@@ -6,6 +6,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -307,6 +308,10 @@ private fun ChoiceCellValue(track: Track, prefs: TrackPrefs?, place: Int, cellSi
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 softWrap = false,
+                // At High density the circle (~20dp) is shorter than titleMedium's 24sp line;
+                // clamped to it, the line is laid out from the top and the digit sits low.
+                // Unbounded, the whole line box is centred on the circle instead.
+                modifier = Modifier.wrapContentSize(unbounded = true),
             )
         }
     } else {
