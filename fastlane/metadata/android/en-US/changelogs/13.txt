@@ -1,0 +1,3 @@
+New track types: Number and Choice. Both require Tickbuddy server 3.2.0 or later.
+Number tracks: a numeric entry with an optional unit, 0 to 3 decimal places, and optionally negative values.
+Choice tracks: select an option from a user-defined list.
