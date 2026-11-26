@@ -1,6 +1,8 @@
 *.iml
 .gradle
-/.claude/
+/.claude/*
+!/.claude/settings.json
+!/.claude/rules/
 /local.properties
 /.idea/caches
 /.idea/libraries
